@@ -1,86 +1,86 @@
 import ThemeToggleButton from '@/components/common/ThemeToggleButton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from '@/components/ui/navigation-menu';
-import { Github, Linkedin, Twitter } from 'lucide-react';
+import { Github, Linkedin, Menu, Twitter, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-
     const [isDark, setIsDark] = useState(false);
+    const [mobileOpen, setMobileOpen] = useState(false);
 
+    // track dark class on <html>
     useEffect(() => {
-        const updateTheme = () => {
+        const update = () =>
             setIsDark(document.documentElement.classList.contains('dark'));
-        };
+        update();
 
-        updateTheme(); // call once on load
-
-        // Optional: listen to class changes if needed
-        const observer = new MutationObserver(updateTheme);
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-
-        return () => observer.disconnect();
+        const obs = new MutationObserver(update);
+        obs.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['class'],
+        });
+        return () => obs.disconnect();
     }, []);
 
-    const lightLogo = "https://placehold.co/40/000000/FFFFFF?text=EM";
-    const darkLogo = "https://placehold.co/40/FFFFFF/000000?text=EM";
+    const lightLogo = 'https://placehold.co/40/000000/FFFFFF?text=EM';
+    const darkLogo = 'https://placehold.co/40/FFFFFF/000000?text=EM';
+
+    const links = (
+        <>
+            <a href="/projects" className="hover:underline transition-colors">
+                Projects
+            </a>
+            <a href="/about" className="hover:underline transition-colors">
+                About
+            </a>
+            <a href="/contact" className="hover:underline transition-colors">
+                Contact
+            </a>
+        </>
+    );
+
     return (
         <>
-            {/* Header */}
             <header className="fixed top-0 left-0 w-full bg-white text-black dark:bg-black dark:text-white z-50 shadow">
-                <div className="max-w-screen-xl mx-auto flex justify-between items-center h-16 px-4">
-                    {/* Left: Logo + Name */}
+                <div className="max-w-screen-xl mx-auto flex items-center justify-between h-16 px-4">
                     <a href="/" className="flex items-center">
                         <Avatar>
-                            <AvatarImage
-                                src={isDark ? darkLogo : lightLogo}
-                                alt="Emilio"
-                            />
+                            <AvatarImage src={isDark ? darkLogo : lightLogo} alt="EM" />
                             <AvatarFallback>EM</AvatarFallback>
                         </Avatar>
-                        <span className="ml-2 text-lg font-semibold">Emilio El Murr</span>
+                        <span className="ml-2 text-lg font-semibold hidden sm:inline">
+                            Emilio El Murr
+                        </span>
                     </a>
 
-                    {/* Center: Navigation */}
-                    <nav className="flex items-center gap-6">
-                        <NavigationMenu>
-                            <NavigationMenuList className="flex gap-6 text-sm font-medium">
-                                <NavigationMenuItem>
-                                    <NavigationMenuLink asChild>
-                                        <a href="/projects" className="hover:underline transition-colors">
-                                            Projects
-                                        </a>
-                                    </NavigationMenuLink>
-                                </NavigationMenuItem>
-                                <NavigationMenuItem>
-                                    <NavigationMenuLink asChild>
-                                        <a href="/about" className="hover:underline transition-colors">
-                                            About
-                                        </a>
-                                    </NavigationMenuLink>
-                                </NavigationMenuItem>
-                                <NavigationMenuItem>
-                                    <NavigationMenuLink asChild>
-                                        <a href="/contact" className="hover:underline transition-colors">
-                                            Contact
-                                        </a>
-                                    </NavigationMenuLink>
-                                </NavigationMenuItem>
-                            </NavigationMenuList>
-                        </NavigationMenu>
-
-                        {/* Right: Theme Toggle Button */}
+                    {/* Desktop nav */}
+                    <nav className="hidden sm:flex items-center gap-6">
+                        {links}
                         <ThemeToggleButton />
                     </nav>
+
+                    {/* Mobile menu button */}
+                    <button
+                        className="sm:hidden p-2"
+                        onClick={() => setMobileOpen((v) => !v)}
+                        aria-label="Toggle menu"
+                    >
+                        {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                    </button>
                 </div>
+
+                {/* Mobile accordion */}
+                {mobileOpen && (
+                    <div className="sm:hidden bg-white dark:bg-black px-4 pb-4">
+                        <nav className="flex flex-col items-center space-y-4">
+                            {links}
+                            <ThemeToggleButton />
+                        </nav>
+                    </div>
+                )}
             </header>
 
-            {/* Main content */}
-            <main className="mt-16">
-                {children}
-            </main>
+            <main className="mt-16">{children}</main>
 
-            {/* Footer */}
             <footer className="py-8 bg-gray-100 dark:bg-gray-800 dark:text-gray-400 text-center">
                 <div className="flex justify-center items-center gap-6 mb-4">
                     <a href="https://github.com/your-profile" aria-label="GitHub">
@@ -93,7 +93,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                         <Twitter className="w-6 h-6 hover:opacity-80 transition" />
                     </a>
                 </div>
-                <p className="text-sm">© {new Date().getFullYear()} Emilio El Murr. All rights reserved.</p>
+                <p className="text-sm">
+                    © {new Date().getFullYear()} Emilio El Murr. All rights reserved.
+                </p>
             </footer>
         </>
     );

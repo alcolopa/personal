@@ -1,50 +1,43 @@
+// components/common/ThemeToggleButton.tsx
 import { AnimatePresence, motion } from 'framer-motion';
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 
-type Theme = 'light' | 'dark' | 'system';
+type Theme = 'light' | 'dark';
 
 const ThemeToggleButton: React.FC = () => {
-  const [theme, setTheme] = useState<Theme>('system');
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem('theme') as Theme | null;
+    if (saved === 'light' || saved === 'dark') {
+      return saved;
+    }
+    // no saved value → respect OS preference
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  });
 
+  // keep <html> in sync
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
-    } else {
-      applyTheme('system');
-    }
-  }, []);
-
-  const applyTheme = (newTheme: Theme) => {
-    if (newTheme === 'system') {
-      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      document.documentElement.classList.toggle('dark', isDark);
-    } else {
-      document.documentElement.classList.toggle('dark', newTheme === 'dark');
-    }
-  };
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
 
   const handleClick = () => {
-    const nextTheme: Theme =
-      theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
-
-    setTheme(nextTheme);
-    localStorage.setItem('theme', nextTheme);
-    applyTheme(nextTheme);
+    const next: Theme = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    localStorage.setItem('theme', next);
   };
 
-  const icon = {
+  const icons = {
     light: <Sun className="w-6 h-6" />,
     dark: <Moon className="w-6 h-6" />,
-    system: <Monitor className="w-6 h-6" />,
   };
 
   return (
     <button
       onClick={handleClick}
       className="relative w-10 h-10 rounded-full flex items-center justify-center border hover:scale-110 transition-transform"
+      aria-label="Toggle theme"
     >
       <AnimatePresence mode="wait">
         <motion.div
@@ -55,7 +48,7 @@ const ThemeToggleButton: React.FC = () => {
           transition={{ duration: 0.3 }}
           className="absolute"
         >
-          {icon[theme]}
+          {icons[theme]}
         </motion.div>
       </AnimatePresence>
     </button>
