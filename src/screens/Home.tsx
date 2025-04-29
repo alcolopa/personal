@@ -185,17 +185,17 @@ const Home: React.FC = () => {
           <ul className="flex flex-col md:flex-row items-center justify-between gap-12">
             <li className="flex flex-col items-center text-center max-w-xs">
               <ClipboardList className="w-12 h-12 mb-6 text-black" />
-              <h4 className="text-xl font-semibold mb-2">Plan</h4>
+              <h4 className="text-xl font-semibold mb-2 text-gray-600">Plan</h4>
               <p className="text-base text-gray-600">Discovery &amp; requirement gathering</p>
             </li>
             <li className="flex flex-col items-center text-center max-w-xs">
               <Code className="w-12 h-12 mb-6 text-black" />
-              <h4 className="text-xl font-semibold mb-2">Build</h4>
+              <h4 className="text-xl font-semibold mb-2 text-gray-600">Build</h4>
               <p className="text-base text-gray-600">Development &amp; iteration</p>
             </li>
             <li className="flex flex-col items-center text-center max-w-xs">
               <Rocket className="w-12 h-12 mb-6 text-black" />
-              <h4 className="text-xl font-semibold mb-2">Launch</h4>
+              <h4 className="text-xl font-semibold mb-2 text-gray-600">Launch</h4>
               <p className="text-base text-gray-600">Deployment &amp; support</p>
             </li>
           </ul>
