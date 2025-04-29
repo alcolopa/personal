@@ -65,7 +65,7 @@ const ProjectDetails: React.FC = () => {
             {project.technologies.map((tech, idx) => (
               <span
                 key={idx}
-                className="px-3 py-1 rounded-full bg-gray-200 dark:bg-gray-700 text-sm"
+                className="px-3 py-1 rounded-full bg-gray-300 dark:bg-gray-700 text-sm"
               >
                 {tech}
               </span>

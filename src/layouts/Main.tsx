@@ -83,13 +83,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
             <footer className="py-8 bg-gray-100 dark:bg-gray-800 dark:text-gray-400 text-center">
                 <div className="flex justify-center items-center gap-6 mb-4">
-                    <a href="https://github.com/your-profile" aria-label="GitHub">
+                    <a href="https://github.com/alcolopa" aria-label="GitHub">
                         <Github className="w-6 h-6 hover:opacity-80 transition" />
                     </a>
-                    <a href="https://linkedin.com/in/your-profile" aria-label="LinkedIn">
+                    <a href="https://linkedin.com/in/emilioelmurr" aria-label="LinkedIn">
                         <Linkedin className="w-6 h-6 hover:opacity-80 transition" />
                     </a>
-                    <a href="https://twitter.com/your-profile" aria-label="Twitter">
+                    <a href="https://x.com/emilioelmurr_" aria-label="Twitter">
                         <Twitter className="w-6 h-6 hover:opacity-80 transition" />
                     </a>
                 </div>

@@ -31,7 +31,7 @@ const projects = [
 
 const Projects: React.FC = () => {
   return (
-    <section className="min-h-screen px-6 py-16 bg-gray-50 dark:bg-gray-900 dark:text-white">
+    <section className="min-h-screen px-6 py-16 bg-gray-300 dark:bg-gray-900 dark:text-white">
       <div className="max-w-screen-lg mx-auto">
         <h1 className="text-4xl font-bold text-center mb-12">My Projects</h1>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
