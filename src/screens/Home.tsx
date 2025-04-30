@@ -181,7 +181,7 @@ const Home: React.FC = () => {
 
       <section className="py-20 bg-white">
         <div className="max-w-screen-lg mx-auto px-6">
-          <h3 className="text-4xl font-bold text-center mb-16">My Process</h3>
+          <h3 className="text-4xl font-bold text-center mb-16 text-black">My Process</h3>
           <ul className="flex flex-col md:flex-row items-center justify-between gap-12">
             <li className="flex flex-col items-center text-center max-w-xs">
               <ClipboardList className="w-12 h-12 mb-6 text-black" />
