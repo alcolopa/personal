@@ -31,7 +31,7 @@ const projects = [
 
 const Projects: React.FC = () => {
   return (
-    <section className="min-h-screen px-6 py-16 bg-gray-300 dark:bg-gray-900 dark:text-white">
+    <section className="min-h-screen px-6 py-16 bg-gradient-to-b from-background to-muted text-foreground">
       <div className="max-w-screen-lg mx-auto">
         <h1 className="text-4xl font-bold text-center mb-12">My Projects</h1>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -46,7 +46,7 @@ const Projects: React.FC = () => {
                   alt={project.title}
                   className="w-full h-48 object-cover rounded mb-4"
                 />
-                <p className="text-gray-700 dark:text-gray-300">{project.description}</p>
+                <p className="text-muted-foreground">{project.description}</p>
               </CardContent>
               <CardFooter className="flex justify-between mt-auto">
                 <Button asChild>
@@ -63,6 +63,7 @@ const Projects: React.FC = () => {
         </div>
       </div>
     </section>
+
   );
 };
 

@@ -1,4 +1,3 @@
-// src/pages/ProjectDetails.tsx
 import { Button } from '@/components/ui/button';
 import React from 'react';
 import { useParams } from 'react-router';
@@ -32,15 +31,14 @@ const projectData = {
 
 const ProjectDetails: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
-
   const project = projectData[projectId as keyof typeof projectData];
 
   if (!project) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-center px-6">
+      <div className="min-h-screen flex items-center justify-center text-center px-6 bg-gradient-to-b from-background to-muted text-foreground">
         <div>
           <h1 className="text-3xl font-bold mb-4">Project Not Found</h1>
-          <p className="text-gray-500 dark:text-gray-400">
+          <p className="text-muted-foreground">
             Sorry, we couldn't find the project you're looking for.
           </p>
         </div>
@@ -49,7 +47,7 @@ const ProjectDetails: React.FC = () => {
   }
 
   return (
-    <section className="min-h-screen px-6 py-16 bg-white dark:bg-black dark:text-white">
+    <section className="min-h-screen px-6 py-16 bg-gradient-to-b from-background to-muted text-foreground">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold mb-6">{project.title}</h1>
         <img
@@ -65,7 +63,7 @@ const ProjectDetails: React.FC = () => {
             {project.technologies.map((tech, idx) => (
               <span
                 key={idx}
-                className="px-3 py-1 rounded-full bg-gray-300 dark:bg-gray-700 text-sm"
+                className="px-3 py-1 rounded-full bg-accent text-accent-foreground text-sm"
               >
                 {tech}
               </span>
