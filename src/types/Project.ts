@@ -2,8 +2,8 @@ export type Project = {
     title: string;
     description?: string;
     image?: string;
-    github_repo: string;
-    live_link: string;
+    github_repo?: string;
+    live_link?: string;
 };
 
 export const mapProjectToDTO = (project: Project) => ({

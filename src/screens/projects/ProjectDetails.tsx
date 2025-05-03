@@ -27,15 +27,25 @@ const ProjectDetails: React.FC = () => {
           alt={project.title}
           className="w-full rounded mb-8"
         />
-        <p className="text-lg leading-relaxed mb-8">{project.description}</p>
+        <p className="text-lg leading-relaxed mb-8 ">{project.description}</p>
 
-        <Button asChild>
+        <Button asChild className='min-w-[200px]'>
           <a
             href={project.github_repo}
             target="_blank"
             rel="noopener noreferrer"
           >
             View Source Code
+          </a>
+        </Button>
+
+        <Button asChild className='ml-4 min-w-[200px]'>
+          <a
+            href={project.live_link}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Visit Live Site
           </a>
         </Button>
       </div>
