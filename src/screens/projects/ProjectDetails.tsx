@@ -23,34 +23,37 @@ const ProjectDetails: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold mb-6">{project.title}</h1>
         <img
-          src={urlFor(project.image).width(800).url()}
+          src={urlFor(project.image).width(1920).url()}
           alt={project.title}
           className="w-full rounded mb-8"
         />
-        <p className="text-lg leading-relaxed mb-8 ">{project.description}</p>
+        <p className="text-lg leading-relaxed mb-8">{project.description}</p>
 
-        <Button asChild className='min-w-[200px]'>
-          <a
-            href={project.github_repo}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View Source Code
-          </a>
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <Button asChild className="min-w-[200px]">
+            <a
+              href={project.github_repo}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View Source Code
+            </a>
+          </Button>
 
-        <Button asChild className='ml-4 min-w-[200px]'>
-          <a
-            href={project.live_link}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Visit Live Site
-          </a>
-        </Button>
+          <Button asChild className="min-w-[200px]">
+            <a
+              href={project.live_link}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Visit Live Site
+            </a>
+          </Button>
+        </div>
       </div>
     </section>
   );
+
 };
 
 export default ProjectDetails;

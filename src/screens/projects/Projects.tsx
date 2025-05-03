@@ -65,7 +65,7 @@ const Projects: React.FC = () => {
                   </CardHeader>
                   <CardContent>
                     {project.image ? (<img
-                      src={urlFor(project.image).width(600).url()}
+                      src={urlFor(project.image).width(1920).url()}
                       alt={project.title}
                       className="w-full h-48 object-cover rounded mb-4"
                     />) : (<img

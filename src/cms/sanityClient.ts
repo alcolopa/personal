@@ -12,3 +12,8 @@ export async function getProjects(): Promise<Project[]> {
     const projects = await client.fetch('*[_type == "project"]')
     return projects
   }
+
+export async function getFeaturedProjects(): Promise<Project[]> {
+  const featuredProjects = await client.fetch('*[_type == "project" && is_featured == true]')
+  return featuredProjects
+}

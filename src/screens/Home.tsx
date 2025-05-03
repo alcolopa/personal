@@ -1,4 +1,6 @@
 import '@/App.css';
+import { getFeaturedProjects } from '@/cms/sanityClient';
+import urlFor from '@/cms/urlBuilder';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import {
@@ -8,10 +10,27 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from '@/components/ui/carousel';
+import { Project } from '@/types/Project';
 import { ChevronDown, ClipboardList, Code, Rocket } from 'lucide-react';
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Link } from 'react-router';
 
 const Home: React.FC = () => {
+
+  const [projects, setProjects] = React.useState<Array<Project>>([]);
+  const [loading, setLoading] = React.useState<boolean>(true);
+
+  useEffect(() => {
+
+    async function getAndSetProjects(): Promise<void> {
+      const projects = await getFeaturedProjects();
+      setProjects(projects);
+      setLoading(false);
+    }
+
+    getAndSetProjects();
+  }, []);
+
   return (
     <main>
       <section
@@ -116,33 +135,7 @@ const Home: React.FC = () => {
 
           <Carousel className="w-full">
             <CarouselContent>
-              {[
-                {
-                  title: 'E-commerce Platform',
-                  description:
-                    'Scalable e-commerce app that increased conversion by 25% with an optimized checkout.',
-                },
-                {
-                  title: 'Dashboard Analytics',
-                  description:
-                    'Real-time analytics dashboard enhancing data visibility for stakeholders.',
-                },
-                {
-                  title: 'Dashboard Analytics',
-                  description:
-                    'Real-time analytics dashboard enhancing data visibility for stakeholders.',
-                },
-                {
-                  title: 'Dashboard Analytics',
-                  description:
-                    'Real-time analytics dashboard enhancing data visibility for stakeholders.',
-                },
-                {
-                  title: 'Dashboard Analytics',
-                  description:
-                    'Real-time analytics dashboard enhancing data visibility for stakeholders.',
-                },
-              ].map((project, idx) => (
+              {projects.map((project, idx) => (
                 <CarouselItem key={idx} className="md:basis-full lg:basis-full">
                   <Card>
                     <CardHeader>
@@ -150,27 +143,31 @@ const Home: React.FC = () => {
                     </CardHeader>
                     <CardContent>
                       <img
-                        src="https://placehold.co/600x300"
+                        src={project.image ? urlFor(project.image).width(1920).url() : 'https://placehold.co/600x300'}
                         alt={project.title}
                         className="w-full rounded mb-4"
                       />
                       <p>{project.description}</p>
                     </CardContent>
                     <CardFooter className="flex justify-between">
-                      <Button asChild>
-                        <a href="/projects/dashboard">Details</a>
-                      </Button>
-                      <Button variant="secondary" asChild>
-                        <a href="https://github.com/your-repo">Source</a>
-                      </Button>
+                      <Link to="/project-details" state={{ project }}>
+                        <Button>Details</Button>
+                      </Link>
+                      {project.github_repo && (
+                        <Button variant="secondary" asChild>
+                          <a href={project.github_repo} target="_blank" rel="noopener noreferrer">Source</a>
+                        </Button>
+                      )}
                     </CardFooter>
                   </Card>
                 </CarouselItem>
               ))}
             </CarouselContent>
 
-            <CarouselPrevious />
-            <CarouselNext />
+            <div className="hidden md:flex justify-center mt-4 gap-4">
+              <CarouselPrevious />
+              <CarouselNext />
+            </div>
           </Carousel>
         </div>
       </section>
