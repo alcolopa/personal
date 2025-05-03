@@ -6,6 +6,7 @@ import { initGA, logPageView } from './lib/ga';
 import About from './screens/About';
 import Contact from './screens/Contact';
 import Home from './screens/Home';
+import NotFound from './screens/NotFound';
 import ProjectDetails from './screens/projects/ProjectDetails';
 import Projects from './screens/projects/Projects';
 
@@ -27,6 +28,7 @@ const App: React.FC = () => {
           <Route path="/contact" element={<Contact />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/project-details" element={<ProjectDetails />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Layout>
     </BrowserRouter>
