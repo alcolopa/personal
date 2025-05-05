@@ -120,7 +120,7 @@ const Home: React.FC = () => {
             ].map((tech) => (
               <span
                 key={tech}
-                className="px-3 py-1 bg-accent text-accent-foreground rounded-full text-sm"
+                className="px-3 py-1 bg-primary text-white rounded-full text-sm"
               >
                 {tech}
               </span>
@@ -151,7 +151,7 @@ const Home: React.FC = () => {
                     </CardContent>
                     <CardFooter className="flex justify-between">
                       <Link to="/project-details" state={{ project }}>
-                        <Button>Details</Button>
+                        <Button className='text-white'>Details</Button>
                       </Link>
                       {project.github_repo && (
                         <Button variant="secondary" asChild>
@@ -172,33 +172,33 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      <section className="py-20 bg-background text-foreground">
+      <section className="py-20 bg-gradient-to-b from-background to-muted text-foreground">
         <div className="max-w-screen-lg mx-auto px-6">
           <h3 className="text-4xl font-bold text-center mb-16">My Process</h3>
           <ul className="flex flex-col md:flex-row items-center justify-between gap-12">
             <li className="flex flex-col items-center text-center max-w-xs">
-              <ClipboardList className="w-12 h-12 mb-6 text-foreground" />
-              <h4 className="text-xl font-semibold mb-2 text-muted-foreground">Plan</h4>
-              <p className="text-base text-muted-foreground">Understand needs</p>
+              <ClipboardList className="w-12 h-12 mb-6 text-primary" />
+              <h4 className="text-xl font-semibold mb-2 text-foreground">Plan</h4>
+              <p className="text-base text-foreground">Understand needs</p>
             </li>
             <li className="flex flex-col items-center text-center max-w-xs">
-              <Code className="w-12 h-12 mb-6 text-foreground" />
-              <h4 className="text-xl font-semibold mb-2 text-muted-foreground">Build</h4>
-              <p className="text-base text-muted-foreground">Develop & Refine</p>
+              <Code className="w-12 h-12 mb-6 text-primary" />
+              <h4 className="text-xl font-semibold mb-2 text-foreground">Build</h4>
+              <p className="text-base text-foreground">Develop & Refine</p>
             </li>
             <li className="flex flex-col items-center text-center max-w-xs">
-              <Rocket className="w-12 h-12 mb-6 text-foreground" />
-              <h4 className="text-xl font-semibold mb-2 text-muted-foreground">Launch</h4>
-              <p className="text-base text-muted-foreground">Deploy & Assist</p>
+              <Rocket className="w-12 h-12 mb-6 text-primary" />
+              <h4 className="text-xl font-semibold mb-2 text-foreground">Launch</h4>
+              <p className="text-base text-foreground">Deploy & Assist</p>
             </li>
           </ul>
         </div>
       </section>
 
-      <section id="contact" className="py-16 px-4 bg-background text-foreground text-center">
+      <section id="contact" className="py-16 px-4 bg-muted text-foreground text-center">
         <h3 className="text-2xl font-semibold mb-4">Ready to collaborate?</h3>
         <p className="mb-6">Let’s turn your ideas into reality—fully remote, transparent process.</p>
-        <Button asChild>
+        <Button className='text-white' asChild>
           <a href="/contact">Contact Me</a>
         </Button>
       </section>

@@ -18,6 +18,7 @@ const Contact: React.FC = () => {
           <div className="flex flex-col text-left">
             <label htmlFor="name" className="mb-2 text-sm font-medium">Name</label>
             <Input
+              className='placeholder:text-gray'
               type="text"
               id="name"
               name="name"
@@ -29,6 +30,7 @@ const Contact: React.FC = () => {
           <div className="flex flex-col text-left">
             <label htmlFor="email" className="mb-2 text-sm font-medium">Email</label>
             <Input
+              className='placeholder:text-gray'
               type="email"
               name="email"
               id="email"
@@ -40,6 +42,7 @@ const Contact: React.FC = () => {
           <div className="flex flex-col text-left">
             <label htmlFor="message" className="mb-2 text-sm font-medium">Message</label>
             <Textarea
+              className='placeholder:text-gray'
               id="message"
               name="message"
               rows={5}
@@ -47,10 +50,14 @@ const Contact: React.FC = () => {
               required
             />
           </div>
-          <Input type="hidden" name="_next" value="https://emilioelmurr.com"></Input>
-          <Input type="hidden" name="_subject" value="New submission!"></Input>
-          <Input type="hidden" name="_captcha" value="false"></Input>
-          <Input type="text" name="_honey" className="hidden"></Input>
+          <Input
+            className='placeholder:text-gray' type="hidden" name="_next" value="https://emilioelmurr.com"></Input>
+          <Input
+            className='placeholder:text-gray' type="hidden" name="_subject" value="New submission!"></Input>
+          <Input
+            className='placeholder:text-gray' type="hidden" name="_captcha" value="false"></Input>
+          <Input
+            className='placeholder:text-gray hidden' type="text" name="_honey"></Input>
 
           <Button type="submit" className="w-full">
             Send Message

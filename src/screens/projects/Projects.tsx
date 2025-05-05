@@ -74,11 +74,11 @@ const Projects: React.FC = () => {
                       className="w-full h-48 object-cover rounded mb-4"
                     />)}
 
-                    <p className="text-muted-foreground">{project.description}</p>
+                    <p className="text-foreground">{project.description}</p>
                   </CardContent>
                   <CardFooter className="flex justify-between mt-auto">
                     <Link to="/project-details" state={{ project }}>
-                      <Button>Details</Button>
+                      <Button className='text-white'>Details</Button>
                     </Link>
                     <Button variant="secondary" asChild>
                       <a

@@ -27,7 +27,7 @@ const ProjectDetails: React.FC = () => {
           alt={project.title}
           className="w-full rounded mb-8"
         />
-        <p className="text-lg leading-relaxed mb-8">{project.description}</p>
+        <p className="text-lg leading-relaxed mb-8 text-foreground">{project.description}</p>
 
         <div className="flex flex-col sm:flex-row gap-4">
           <Button asChild className="min-w-[200px]">
