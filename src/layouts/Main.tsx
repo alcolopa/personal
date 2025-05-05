@@ -7,7 +7,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isDark, setIsDark] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
 
-    // track dark class on <html>
     useEffect(() => {
         const update = () =>
             setIsDark(document.documentElement.classList.contains('dark'));
@@ -52,13 +51,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       </span>
                   </a>
 
-                  {/* Desktop nav */}
                   <nav className="hidden sm:flex items-center gap-6">
                       {links}
                       <ThemeToggleButton />
                   </nav>
 
-                  {/* Mobile menu button */}
                   <button
                       className="sm:hidden p-2"
                       onClick={() => setMobileOpen((v) => !v)}
@@ -68,7 +65,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   </button>
               </div>
 
-              {/* Mobile accordion */}
               {mobileOpen && (
                   <div className="sm:hidden bg-background px-4 pb-4">
                       <nav className="flex flex-col items-center space-y-4">
