@@ -11,7 +11,7 @@ import {
   CarouselPrevious,
 } from '@/components/ui/carousel';
 import { Project } from '@/types/Project';
-import { ChevronDown, ClipboardList, Code, Rocket } from 'lucide-react';
+import { BadgeCheck, ChevronDown, ClipboardList, Code, FolderKanban, Globe, Rocket } from 'lucide-react';
 import React, { useEffect } from 'react';
 import { Link } from 'react-router';
 
@@ -56,18 +56,18 @@ const Home: React.FC = () => {
               Building high-performance Laravel applications that delight users and drive results.
             </p>
 
-            <div className="flex justify-center md:justify-start gap-6">
+            <div className="flex justify-around md:justify-start gap-6">
               <div className="flex flex-col items-center">
-                <ClipboardList className="w-8 h-8 mb-1" />
+                <BadgeCheck className="w-8 h-8 mb-1" />
                 <span className="font-medium">4+ Years</span>
               </div>
               <div className="flex flex-col items-center">
-                <Code className="w-8 h-8 mb-1" />
+                <FolderKanban className="w-8 h-8 mb-1" />
                 <span className="font-medium">10+ Projects</span>
               </div>
               <div className="flex flex-col items-center">
-                <Rocket className="w-8 h-8 mb-1" />
-                <span className="font-medium">Remote-Ready</span>
+                <Globe className="w-8 h-8 mb-1" />
+                <span className="font-medium">Remote</span>
               </div>
             </div>
 
