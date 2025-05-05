@@ -1,4 +1,6 @@
 import { Button } from '@/components/ui/button';
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import React from 'react';
 
 const Contact: React.FC = () => {
@@ -12,13 +14,13 @@ const Contact: React.FC = () => {
         </p>
 
         {/* Contact Form */}
-        <form className="space-y-6">
+        <form action="https://formsubmit.co/e5633b22b917eeefdc385977c968ed3e" method='POST' className="space-y-6">
           <div className="flex flex-col text-left">
             <label htmlFor="name" className="mb-2 text-sm font-medium">Name</label>
-            <input
+            <Input
               type="text"
               id="name"
-              className="px-4 py-2 rounded border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              name="name"
               placeholder="Your name"
               required
             />
@@ -26,10 +28,10 @@ const Contact: React.FC = () => {
 
           <div className="flex flex-col text-left">
             <label htmlFor="email" className="mb-2 text-sm font-medium">Email</label>
-            <input
+            <Input
               type="email"
+              name="email"
               id="email"
-              className="px-4 py-2 rounded border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="you@example.com"
               required
             />
@@ -37,14 +39,18 @@ const Contact: React.FC = () => {
 
           <div className="flex flex-col text-left">
             <label htmlFor="message" className="mb-2 text-sm font-medium">Message</label>
-            <textarea
+            <Textarea
               id="message"
+              name="message"
               rows={5}
-              className="px-4 py-2 rounded border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Your message..."
               required
             />
           </div>
+          <Input type="hidden" name="_next" value="https://emilioelmurr.com"></Input>
+          <Input type="hidden" name="_subject" value="New submission!"></Input>
+          <Input type="hidden" name="_captcha" value="false"></Input>
+          <Input type="text" name="_honey" className="hidden"></Input>
 
           <Button type="submit" className="w-full">
             Send Message
