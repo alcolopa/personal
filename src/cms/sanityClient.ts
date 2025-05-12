@@ -24,3 +24,14 @@ export async function getProjectBySlug(id: string) {
   return await client.fetch(query, params);
 }
 
+export async function getBlogs() {
+  const projects = await client.fetch('*[_type == "blog"]')
+  return projects
+}
+
+export async function getBlogBySlug(slug: string) {
+  const query = `*[_type == "blog" && slug == slug][0]`;
+  const params = { slug };
+  return await client.fetch(query, params);
+}
+
