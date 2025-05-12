@@ -17,3 +17,10 @@ export async function getFeaturedProjects(): Promise<Project[]> {
   const featuredProjects = await client.fetch('*[_type == "project" && is_featured == true]')
   return featuredProjects
 }
+
+export async function getProjectBySlug(id: string) {
+  const query = `*[_type == "project" && id == id][0]`;
+  const params = { id };
+  return await client.fetch(query, params);
+}
+

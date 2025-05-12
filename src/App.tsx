@@ -59,7 +59,7 @@ const AppContent: React.FC = () => {
         }
       />
       <Route
-        path="/project-details"
+        path="/projects/:slug"
         element={
           <Layout>
             <ProjectDetails />

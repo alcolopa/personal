@@ -1,4 +1,5 @@
 export type Project = {
+    id: string;
     title: string;
     description?: string;
     image?: string;
@@ -7,6 +8,7 @@ export type Project = {
 };
 
 export const mapProjectToDTO = (project: Project) => ({
+    id: project.id,
     title: project.title,
     description: project.description || null,
     image: project.image || null,
@@ -15,6 +17,7 @@ export const mapProjectToDTO = (project: Project) => ({
 });
 
 export const mapDTOToProject = (dto: ReturnType<typeof mapProjectToDTO>): Project => ({
+    id: dto.id,
     title: dto.title,
     description: dto.description || undefined,
     image: dto.image || undefined,

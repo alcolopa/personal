@@ -77,8 +77,8 @@ const Projects: React.FC = () => {
                     <p className="text-foreground">{project.description}</p>
                   </CardContent>
                   <CardFooter className="flex justify-between mt-auto">
-                    <Link to="/project-details" state={{ project }}>
-                      <Button className='text-white'>Details</Button>
+                    <Link to={`/projects/${project.id}`} state={{ project }}>
+                      <Button>Details</Button>
                     </Link>
                     <Button variant="secondary" asChild>
                       <a

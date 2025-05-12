@@ -173,8 +173,8 @@ const Home: React.FC = () => {
                       <p>{project.description}</p>
                     </CardContent>
                     <CardFooter className="flex justify-between">
-                      <Link to="/project-details" state={{ project }}>
-                        <Button className='text-white'>Details</Button>
+                      <Link to={`/projects/${project.id}`} state={{ project }}>
+                        <Button>Details</Button>
                       </Link>
                       {project.github_repo && (
                         <Button variant="secondary" asChild>
