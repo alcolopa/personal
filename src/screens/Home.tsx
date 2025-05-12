@@ -1,6 +1,7 @@
 import '@/App.css';
 import { getFeaturedProjects } from '@/cms/sanityClient';
 import urlFor from '@/cms/urlBuilder';
+import Stars from '@/components/custom/Stars';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import {
@@ -29,24 +30,6 @@ const Home: React.FC = () => {
     getAndSetProjects();
   }, []);
 
-  const stars = Array.from({ length: 50 }).map((_, index) => {
-    const top = Math.random() * 100;
-    const left = Math.random() * 100;
-    const size = Math.random() * 2 + 1;
-
-    return (
-      <span
-        key={index}
-        className="absolute rounded-full bg-white opacity-70"
-        style={{
-          top: `${top}%`,
-          left: `${left}%`,
-          width: `${size}px`,
-          height: `${size}px`,
-        }}
-      />
-    );
-  });
 
   return (
     <main>
@@ -61,8 +44,8 @@ const Home: React.FC = () => {
           min-h-[75vh] md:min-h-[93vh]
         "
       >
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          {stars}
+        <div className="absolute inset-0 overflow-hidden z-0">
+          <Stars />
         </div>
 
         <div className="absolute top-[-100px] left-1/2 transform -translate-x-1/2 w-[400px] h-[400px] bg-primary opacity-20 rounded-full blur-3xl z-0 pointer-events-none" />
