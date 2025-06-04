@@ -42,9 +42,10 @@ const Home: React.FC = () => {
           px-6
           pt-16 pb-8
           min-h-[75vh] md:min-h-[93vh]
+          isolate
         "
       >
-        <div className="absolute inset-0 overflow-hidden z-0">
+        <div className="absolute inset-0 overflow-hidden -z-10">
           <Stars />
         </div>
 
