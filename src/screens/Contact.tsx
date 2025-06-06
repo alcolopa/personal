@@ -1,9 +1,40 @@
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import React from 'react';
+import React, { useState } from 'react';
 
 const Contact: React.FC = () => {
+  const [form, setForm] = useState({ name: '', email: '', message: '' });
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus('sending');
+
+    try {
+      const response = await fetch('https://a4e95dbcz3.execute-api.us-east-1.amazonaws.com/prod', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(form),
+      });
+
+      if (response.ok) {
+        setStatus('sent');
+        setForm({ name: '', email: '', message: '' });
+      } else {
+        setStatus('error');
+      }
+    } catch {
+      setStatus('error');
+    }
+  };
+
   return (
     <section className="min-h-screen flex flex-col items-center justify-center px-6 py-16 bg-gradient-to-b from-background to-muted text-foreground">
       <div className="max-w-md w-full text-center">
@@ -14,7 +45,7 @@ const Contact: React.FC = () => {
         </p>
 
         {/* Contact Form */}
-        <form action="https://formsubmit.co/e5633b22b917eeefdc385977c968ed3e" method='POST' className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="flex flex-col text-left">
             <label htmlFor="name" className="mb-2 text-sm font-medium">Name</label>
             <Input
@@ -23,6 +54,8 @@ const Contact: React.FC = () => {
               id="name"
               name="name"
               placeholder="Your name"
+              value={form.name}
+              onChange={handleChange}
               required
             />
           </div>
@@ -32,9 +65,11 @@ const Contact: React.FC = () => {
             <Input
               className='placeholder:text-gray'
               type="email"
-              name="email"
               id="email"
+              name="email"
               placeholder="you@example.com"
+              value={form.email}
+              onChange={handleChange}
               required
             />
           </div>
@@ -47,21 +82,18 @@ const Contact: React.FC = () => {
               name="message"
               rows={5}
               placeholder="Your message..."
+              value={form.message}
+              onChange={handleChange}
               required
             />
           </div>
-          <Input
-            className='placeholder:text-gray' type="hidden" name="_next" value="https://emilioelmurr.com"></Input>
-          <Input
-            className='placeholder:text-gray' type="hidden" name="_subject" value="New submission!"></Input>
-          <Input
-            className='placeholder:text-gray' type="hidden" name="_captcha" value="false"></Input>
-          <Input
-            className='placeholder:text-gray hidden' type="text" name="_honey"></Input>
 
-          <Button type="submit" className="w-full">
-            Send Message
+          <Button type="submit" className="w-full" disabled={status === 'sending'}>
+            {status === 'sending' ? 'Sending...' : 'Send Message'}
           </Button>
+
+          {status === 'sent' && <p className="text-green-500 text-sm">Message sent successfully!</p>}
+          {status === 'error' && <p className="text-red-500 text-sm">There was an error. Please try again.</p>}
         </form>
 
         {/* Alternative Contact Info */}
