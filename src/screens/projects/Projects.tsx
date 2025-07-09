@@ -89,7 +89,7 @@ const Projects: React.FC = () => {
                   <Link to={`/projects/${project.id}`} state={{ project }}>
                     <Button>Details</Button>
                   </Link>
-                  {project.github_repo ? (
+                  {project.github_repo && (
                     <Button variant="secondary" asChild>
                       <a
                         href={project.github_repo}
@@ -99,7 +99,7 @@ const Projects: React.FC = () => {
                         Source
                       </a>
                     </Button>
-                  ) : null}
+                  )}
                 </CardFooter>
               </Card>
             ))}

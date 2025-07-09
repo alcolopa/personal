@@ -66,7 +66,7 @@ const ProjectDetails: React.FC = () => {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4">
-          {project.github_repo ? (
+          {project.github_repo && (
             <Button asChild className="min-w-[200px]">
               <a
                 href={project.github_repo}
@@ -76,7 +76,7 @@ const ProjectDetails: React.FC = () => {
                 View Source Code
               </a>
             </Button>
-          ) : null}
+          )}
           
           <Button asChild className="min-w-[200px]">
             <a
