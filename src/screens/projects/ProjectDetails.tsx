@@ -1,9 +1,9 @@
-import { getProjectBySlug } from '@/cms/sanityClient';
-import urlFor from '@/cms/urlBuilder';
-import { Button } from '@/components/ui/button';
-import { Project } from '@/types/Project';
-import React, { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { getProjectBySlug } from "@/cms/sanityClient";
+import urlFor from "@/cms/urlBuilder";
+import { Button } from "@/components/ui/button";
+import { Project } from "@/types/Project";
+import React, { useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 
 const ProjectDetails: React.FC = () => {
   const navigate = useNavigate();
@@ -11,24 +11,20 @@ const ProjectDetails: React.FC = () => {
   const [project, setProject] = React.useState<Project | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
 
-
   useEffect(() => {
     async function getAndSetProjects(): Promise<void> {
       const projects = await getProjectBySlug(slug as string);
       setProject(projects);
       setLoading(false);
     }
-  
+
     if (slug) getAndSetProjects();
   }, [slug]);
 
-
   if (!project) return null;
-
 
   return (
     <section className="min-h-screen px-6 py-16 bg-gradient-to-b from-background to-muted text-foreground">
-
       {loading ? (
         <div className="flex justify-center items-center h-48">
           <svg
@@ -52,29 +48,36 @@ const ProjectDetails: React.FC = () => {
             />
           </svg>
         </div>
-      ) : null
-      }
+      ) : null}
 
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold mb-6">{project.title}</h1>
         <img
-          src={project.image? urlFor(project.image).width(1920).url() : 'https://via.placeholder.com/1920x1080'}
+          src={
+            project.image
+              ? urlFor(project.image).width(1920).url()
+              : "https://via.placeholder.com/1920x1080"
+          }
           alt={project.title}
           className="w-full rounded mb-8"
         />
-        <p className="text-lg leading-relaxed mb-8 text-foreground">{project.description}</p>
+        <p className="text-lg leading-relaxed mb-8 text-foreground">
+          {project.description}
+        </p>
 
         <div className="flex flex-col sm:flex-row gap-4">
-          <Button asChild className="min-w-[200px]">
-            <a
-              href={project.github_repo}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View Source Code
-            </a>
-          </Button>
-
+          {project.github_repo ? (
+            <Button asChild className="min-w-[200px]">
+              <a
+                href={project.github_repo}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View Source Code
+              </a>
+            </Button>
+          ) : null}
+          
           <Button asChild className="min-w-[200px]">
             <a
               href={project.live_link}
@@ -88,7 +91,6 @@ const ProjectDetails: React.FC = () => {
       </div>
     </section>
   );
-
 };
 
 export default ProjectDetails;
