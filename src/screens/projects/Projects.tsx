@@ -1,13 +1,17 @@
-import { getProjects } from '@/cms/sanityClient';
-import urlFor from '@/cms/urlBuilder';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
-import { Project } from '@/types/Project';
-import React, { useEffect } from 'react';
-import { Link } from 'react-router';
+import { getProjects } from "@/cms/sanityClient";
+import urlFor from "@/cms/urlBuilder";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+} from "@/components/ui/card";
+import { Project } from "@/types/Project";
+import React, { useEffect } from "react";
+import { Link } from "react-router";
 
 const Projects: React.FC = () => {
-
   const [projects, setProjects] = React.useState<Project[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
 
@@ -48,38 +52,44 @@ const Projects: React.FC = () => {
               />
             </svg>
           </div>
-        ) : null
-        }
+        ) : null}
 
         {projects.length === 0 ? (
           <div className="text-center text-muted-foreground">
             <p className="text-xl">No projects to show yet.</p>
-            <p className="text-sm mt-2">Stay tuned — more work is on the way!</p>
+            <p className="text-sm mt-2">
+              Stay tuned — more work is on the way!
+            </p>
           </div>
         ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {projects.map((project, index) => (
-                <Card key={index} className="flex flex-col">
-                  <CardHeader>
-                    <h2 className="text-2xl font-semibold">{project.title}</h2>
-                  </CardHeader>
-                  <CardContent>
-                    {project.image ? (<img
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {projects.map((project, index) => (
+              <Card key={index} className="flex flex-col">
+                <CardHeader>
+                  <h2 className="text-2xl font-semibold">{project.title}</h2>
+                </CardHeader>
+                <CardContent>
+                  {project.image ? (
+                    <img
                       src={urlFor(project.image).width(1920).url()}
                       alt={project.title}
                       className="w-full h-48 object-cover rounded mb-4"
-                    />) : (<img
+                    />
+                  ) : (
+                    <img
                       src="https://placehold.co/600x300"
                       alt={project.title}
                       className="w-full h-48 object-cover rounded mb-4"
-                    />)}
+                    />
+                  )}
 
-                    <p className="text-foreground">{project.description}</p>
-                  </CardContent>
-                  <CardFooter className="flex justify-between mt-auto">
-                    <Link to={`/projects/${project.id}`} state={{ project }}>
-                      <Button>Details</Button>
-                    </Link>
+                  <p className="text-foreground">{project.description}</p>
+                </CardContent>
+                <CardFooter className="flex justify-between mt-auto">
+                  <Link to={`/projects/${project.id}`} state={{ project }}>
+                    <Button>Details</Button>
+                  </Link>
+                  {project.github_repo ? (
                     <Button variant="secondary" asChild>
                       <a
                         href={project.github_repo}
@@ -89,15 +99,15 @@ const Projects: React.FC = () => {
                         Source
                       </a>
                     </Button>
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
+                  ) : null}
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
         )}
       </div>
     </section>
   );
-
 };
 
 export default Projects;
