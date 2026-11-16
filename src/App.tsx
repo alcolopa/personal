@@ -5,10 +5,10 @@ import Layout from './layouts/Main';
 import { initGA, logPageView } from './lib/ga';
 import About from './screens/About';
 import Contact from './screens/Contact';
-import Home from './screens/Home';
 import NotFound from './screens/NotFound';
 import ProjectDetails from './screens/projects/ProjectDetails';
 import Projects from './screens/projects/Projects';
+import Station from './screens/Station';
 
 
 const AppContent: React.FC = () => {
@@ -26,14 +26,7 @@ const AppContent: React.FC = () => {
     <Routes>
       <Route path="*" element={<NotFound />} />
 
-      <Route
-        path="/"
-        element={
-          <Layout>
-            <Home />
-          </Layout>
-        }
-      />
+      <Route path="/" element={<Station />} />
       <Route
         path="/about"
         element={
