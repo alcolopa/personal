@@ -1,5 +1,4 @@
 import { getProjects } from "@/cms/sanityClient";
-import urlFor from "@/cms/urlBuilder";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -7,6 +6,8 @@ import {
   CardFooter,
   CardHeader,
 } from "@/components/ui/card";
+import { mockProjects, mergeWithMockProjects } from "@/data/mockProjects";
+import { getProjectImageUrl } from "@/lib/projectUtils";
 import { Project } from "@/types/Project";
 import React, { useEffect } from "react";
 import { Link } from "react-router";
@@ -17,9 +18,14 @@ const Projects: React.FC = () => {
 
   useEffect(() => {
     async function getAndSetProjects(): Promise<void> {
-      const projects = await getProjects();
-      setProjects(projects);
-      setLoading(false);
+      try {
+        const fetched = await getProjects();
+        setProjects(mergeWithMockProjects(fetched));
+      } catch {
+        setProjects(mockProjects);
+      } finally {
+        setLoading(false);
+      }
     }
 
     getAndSetProjects();
@@ -63,46 +69,45 @@ const Projects: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {projects.map((project, index) => (
-              <Card key={index} className="flex flex-col">
-                <CardHeader>
-                  <h2 className="text-2xl font-semibold">{project.title}</h2>
-                </CardHeader>
-                <CardContent>
-                  {project.image ? (
+            {projects.map((project, index) => {
+              const imgUrl = getProjectImageUrl(project.image) || "https://placehold.co/600x300";
+              return (
+                <Card key={index} className="flex flex-col">
+                  <CardHeader>
+                    <h2 className="text-2xl font-semibold">{project.title}</h2>
+                  </CardHeader>
+                  <CardContent>
                     <img
-                      src={urlFor(project.image).width(1920).url()}
+                      src={imgUrl}
                       alt={project.title}
                       className="w-full h-48 object-cover rounded mb-4"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src =
+                          "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop";
+                      }}
                     />
-                  ) : (
-                    <img
-                      src="https://placehold.co/600x300"
-                      alt={project.title}
-                      className="w-full h-48 object-cover rounded mb-4"
-                    />
-                  )}
 
-                  <p className="text-foreground">{project.description}</p>
-                </CardContent>
-                <CardFooter className="flex justify-between mt-auto">
-                  <Link to={`/projects/${project.id}`} state={{ project }}>
-                    <Button>Details</Button>
-                  </Link>
-                  {project.github_repo && (
-                    <Button variant="secondary" asChild>
-                      <a
-                        href={project.github_repo}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Source
-                      </a>
-                    </Button>
-                  )}
-                </CardFooter>
-              </Card>
-            ))}
+                    <p className="text-foreground">{project.description}</p>
+                  </CardContent>
+                  <CardFooter className="flex justify-between mt-auto">
+                    <Link to={`/projects/${project.id}`} state={{ project }}>
+                      <Button>Details</Button>
+                    </Link>
+                    {project.github_repo && (
+                      <Button variant="secondary" asChild>
+                        <a
+                          href={project.github_repo}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Source
+                        </a>
+                      </Button>
+                    )}
+                  </CardFooter>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

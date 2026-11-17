@@ -1,8 +1,11 @@
 import { getProjects } from '@/cms/sanityClient';
 import Arcade from '@/components/custom/Arcade';
+import ProjectMenuModal from '@/components/custom/ProjectMenuModal';
+import { mockProjects, mergeWithMockProjects } from '@/data/mockProjects';
+import stationAudio from '@/lib/stationAudio';
 import { Project } from '@/types/Project';
+import { Volume2, VolumeX } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -61,7 +64,6 @@ const Station: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [locked, setLocked] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const navigate = useNavigate();
   const [game, setGame] = useState<string | null>(null);
   const touch = window.matchMedia('(pointer: coarse)').matches;
   const joy = useRef({ x: 0, y: 0 });
@@ -88,8 +90,25 @@ const Station: React.FC = () => {
   const [started, setStarted] = useState(false);
   const [built, setBuilt] = useState(false);
   const [projectsDone, setProjectsDone] = useState(false);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const openProject = useCallback((p: Project) => navigate(`/projects/${p.id}`, { state: { project: p } }), [navigate]);
+  const [projects, setProjects] = useState<Project[]>(mockProjects);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const activeProjectRef = useRef<Project | null>(null);
+  activeProjectRef.current = activeProject;
+  const projectsRef = useRef<Project[]>(mockProjects);
+  projectsRef.current = projects;
+
+  const openProject = useCallback((p: Project) => {
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    setActiveProject(p);
+  }, []);
+
+  const closeProject = useCallback(() => {
+    setActiveProject(null);
+  }, []);
+
   const gameRef = useRef<string | null>(null);
   gameRef.current = game;
   // leaving a game re-locks the mouse straight away (runs inside the key press, so the browser allows it)
@@ -99,10 +118,19 @@ const Station: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const giveUp = setTimeout(() => setProjectsDone(true), 6000); // never hang on a slow CMS
+    const giveUp = setTimeout(() => {
+      setProjects((curr) => (curr && curr.length ? curr : mockProjects));
+      setProjectsDone(true);
+    }, 4000); // never hang on a slow CMS
     getProjects()
-      .then(setProjects)
-      .catch(() => {})
+      .then((data) => {
+        const merged = mergeWithMockProjects(data);
+        setProjects(merged);
+      })
+      .catch((err) => {
+        console.warn('Failed to load CMS projects, using mock projects fallback:', err);
+        setProjects(mockProjects);
+      })
       .finally(() => setProjectsDone(true));
     return () => clearTimeout(giveUp);
   }, []);
@@ -950,6 +978,11 @@ const Station: React.FC = () => {
     neonNow = '#ffa73d';
     roundRoom(hubG, 0, 0, 10, [Math.PI / 2, (3 * Math.PI) / 2], [], 6);
     island(hubG, 0, 0);
+    things.push({
+      pos: new THREE.Vector3(0, 1.2, 0),
+      label: 'Open Projects Archive',
+      action: () => openProject(projectsRef.current[0] || mockProjects[0]),
+    });
     const sign = (grp: THREE.Group, cx: number, cz: number, r: number, t: number, text: string) => {
       const [x, z, ry] = pol(cx, cz, r, t);
       place(grp, panel(text, '', 2.8, 0.8, '', '#ffa73d'), x, 2.6, z, ry);
@@ -989,6 +1022,11 @@ const Station: React.FC = () => {
     rects.push({ x1: -19, x2: -9, z1: -3, z2: 3 });
     roundRoom(contactG, CC, 0, 9, [Math.PI / 2], [[(3 * Math.PI) / 2, 0.7], [Math.PI, 0.3], [0, 0.3]]);
     island(contactG, CC, 0);
+    things.push({
+      pos: new THREE.Vector3(CC, 1.2, 0),
+      label: 'Access Project Terminal',
+      action: () => openProject(projectsRef.current[0] || mockProjects[0]),
+    });
     for (const t of [0.6, 0.95, 2.1, 2.5, 3.72, 5.7]) consoleDesk(contactG, ...pol(CC, 0, 7.9, t), 0xffb347);
 
     // --- outside the windows: a moon to the west, drifting rocks to the east
@@ -1030,7 +1068,8 @@ const Station: React.FC = () => {
 
     let current: Interactable | null = null;
     const onKey = (e: KeyboardEvent) => {
-      if (e.type === 'keydown' && gameRef.current) return; // the arcade owns the keyboard while it is open
+      stationAudio.resume();
+      if (e.type === 'keydown' && (gameRef.current || activeProjectRef.current)) return; // the arcade or project modal owns the keyboard
       keys[e.code] = e.type === 'keydown';
       if (active && e.code === 'Space') e.preventDefault();
       if (e.type === 'keydown' && e.code === 'KeyE') want.current.act = true;
@@ -1043,11 +1082,11 @@ const Station: React.FC = () => {
     const onLock = () => {
       isLocked = document.pointerLockElement === renderer.domElement;
       setLocked(isLocked);
-      if (!isLocked && gameRef.current) setGame(null); // Esc while playing leaves the game
     };
     const doLock = () => {
       active = true;
       setStarted(true);
+      stationAudio.resume();
       if (touch) {
         isLocked = true;
         setLocked(true);
@@ -1095,9 +1134,16 @@ const Station: React.FC = () => {
         const sp = (keys.ShiftLeft ? 7 : 4) * dt;
         const dx = ((-Math.sin(yaw) * f + Math.cos(yaw) * s) / len) * sp;
         const dz = ((-Math.cos(yaw) * f - Math.sin(yaw) * s) / len) * sp;
-        if (free(pos.x + dx, pos.z, jumpH)) pos.x += dx;
-        if (free(pos.x, pos.z + dz, jumpH)) pos.z += dz;
+        const movedX = free(pos.x + dx, pos.z, jumpH);
+        const movedZ = free(pos.x, pos.z + dz, jumpH);
+        if (movedX) pos.x += dx;
+        if (movedZ) pos.z += dz;
         pos.y = EYE + jumpH + (vy === 0 && (f || s) ? Math.sin(t * 9) * 0.03 : 0);
+
+        // Walking footsteps audio
+        if (vy === 0 && jumpH <= sup + 0.05 && (Math.abs(f) > 0.1 || Math.abs(s) > 0.1) && (movedX || movedZ)) {
+          stationAudio.playFootstep(Boolean(keys.ShiftLeft));
+        }
       }
       camera.position.copy(pos);
       camera.rotation.set(pitch, yaw, 0);
@@ -1127,6 +1173,7 @@ const Station: React.FC = () => {
 
     return () => {
       cancelAnimationFrame(raf);
+      stationAudio.stop();
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       window.removeEventListener('mousemove', onMouse);
@@ -1188,7 +1235,43 @@ const Station: React.FC = () => {
           </button>
         </>
       )}
-      {game && <Arcade game={game} projects={projects} onOpen={openProject} onExit={exitGame} />}
+      {game && (
+        <Arcade
+          game={game}
+          projects={projects}
+          onExit={exitGame}
+        />
+      )}
+      <ProjectMenuModal
+        project={activeProject}
+        projects={projects.length ? projects : mockProjects}
+        isOpen={Boolean(activeProject && !game)}
+        onClose={closeProject}
+        onSelectProject={setActiveProject}
+      />
+      {started && !game && (
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          <button
+            className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-3 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
+            onClick={() => {
+              const muted = stationAudio.toggleMute();
+              setIsMuted(muted);
+            }}
+            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+          >
+            {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+            <span className="hidden sm:inline">{isMuted ? 'Muted' : 'Audio ON'}</span>
+          </button>
+
+          <button
+            className="flex items-center gap-2 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-3.5 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
+            onClick={() => openProject(projects[0] || mockProjects[0])}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span>Projects ({projects.length || mockProjects.length})</span>
+          </button>
+        </div>
+      )}
       {!(built && projectsDone) && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-5 bg-black px-6 text-center">
           <p className="text-xs uppercase tracking-[0.5em] text-amber-300/80">Emilio&apos;s Station</p>
@@ -1208,23 +1291,11 @@ const Station: React.FC = () => {
             <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight">Emilio&apos;s Station</h1>
             <p className="mt-4 text-white/70">Walk the station, play the arcade, and drive the map to explore my projects.</p>
             <button
-              className="mt-8 rounded-full border border-amber-300 bg-amber-300/10 px-10 py-3 text-lg font-semibold text-amber-200 shadow-[0_0_30px_rgba(255,167,61,0.25)] transition hover:bg-amber-300/25"
+              className="mt-8 rounded-full border border-amber-300 bg-amber-300/10 px-10 py-3 text-lg font-semibold text-amber-200 shadow-[0_0_30px_rgba(255,167,61,0.25)] transition hover:bg-amber-300/25 cursor-pointer"
               onClick={() => (mountRef.current as (HTMLDivElement & { lock?: () => void }) | null)?.lock?.()}
             >
               {touch ? 'Tap to board' : 'Click to board'}
             </button>
-            <div className="mt-10 grid grid-cols-2 gap-3 text-left text-sm sm:grid-cols-3">
-              {(touch
-                ? [['Left stick', 'Move'], ['Drag right side', 'Look around'], ['Jump button', 'Jump'], ['Tap the prompt', 'Interact']]
-                : [['W A S D', 'Move'], ['Mouse', 'Look around'], ['Space', 'Jump'], ['Shift', 'Sprint'], ['E', 'Interact'], ['Esc', 'Release mouse']]
-              ).map(([k, v]) => (
-                <div key={k} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                  <div className="font-mono text-amber-200">{k}</div>
-                  <div className="text-white/60">{v}</div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-8 text-xs text-white/40">Arcade is east of the hub, command deck is west.</p>
           </div>
         </div>
       )}

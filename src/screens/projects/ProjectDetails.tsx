@@ -1,27 +1,52 @@
 import { getProjectBySlug } from "@/cms/sanityClient";
-import urlFor from "@/cms/urlBuilder";
 import { Button } from "@/components/ui/button";
+import { mockProjects } from "@/data/mockProjects";
+import { getProjectImageUrl } from "@/lib/projectUtils";
 import { Project } from "@/types/Project";
 import React, { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 const ProjectDetails: React.FC = () => {
-  const navigate = useNavigate();
   const { slug } = useParams();
   const [project, setProject] = React.useState<Project | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
 
   useEffect(() => {
     async function getAndSetProjects(): Promise<void> {
-      const projects = await getProjectBySlug(slug as string);
-      setProject(projects);
-      setLoading(false);
+      try {
+        const fetched = await getProjectBySlug(slug as string);
+        if (fetched) {
+          setProject(fetched);
+        } else {
+          const mock = mockProjects.find((m) => m.id === slug);
+          setProject(mock || null);
+        }
+      } catch {
+        const mock = mockProjects.find((m) => m.id === slug);
+        setProject(mock || null);
+      } finally {
+        setLoading(false);
+      }
     }
 
     if (slug) getAndSetProjects();
   }, [slug]);
 
+  if (!project && !loading) {
+    return (
+      <section className="min-h-screen px-6 py-16 flex flex-col items-center justify-center text-center">
+        <h1 className="text-3xl font-bold mb-4">Project Not Found</h1>
+        <p className="text-muted-foreground mb-6">Could not find the requested project.</p>
+        <Link to="/projects">
+          <Button>Back to Projects</Button>
+        </Link>
+      </section>
+    );
+  }
+
   if (!project) return null;
+
+  const imageUrl = getProjectImageUrl(project.image) || "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop";
 
   return (
     <section className="min-h-screen px-6 py-16 bg-gradient-to-b from-background to-muted text-foreground">
@@ -53,21 +78,33 @@ const ProjectDetails: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         <h1 className="text-4xl font-bold mb-6">{project.title}</h1>
         <img
-          src={
-            project.image
-              ? urlFor(project.image).width(1920).url()
-              : "https://via.placeholder.com/1920x1080"
-          }
+          src={imageUrl}
           alt={project.title}
-          className="w-full rounded mb-8"
+          className="w-full rounded-xl mb-8 max-h-[500px] object-cover shadow-lg"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).src =
+              "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop";
+          }}
         />
         <p className="text-lg leading-relaxed mb-8 text-foreground">
           {project.description}
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4">
-          {project.github_repo && (
+          {project.live_link && (
             <Button asChild className="min-w-[200px]">
+              <a
+                href={project.live_link}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Visit Live Site
+              </a>
+            </Button>
+          )}
+
+          {project.github_repo && (
+            <Button asChild variant="secondary" className="min-w-[200px]">
               <a
                 href={project.github_repo}
                 target="_blank"
@@ -77,15 +114,9 @@ const ProjectDetails: React.FC = () => {
               </a>
             </Button>
           )}
-          
-          <Button asChild className="min-w-[200px]">
-            <a
-              href={project.live_link}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Visit Live Site
-            </a>
+
+          <Button asChild variant="outline" className="min-w-[150px]">
+            <Link to="/">Back to Station</Link>
           </Button>
         </div>
       </div>
