@@ -90,12 +90,12 @@ const Station: React.FC = () => {
   const [started, setStarted] = useState(false);
   const [built, setBuilt] = useState(false);
   const [projectsDone, setProjectsDone] = useState(false);
-  const [projects, setProjects] = useState<Project[]>(mockProjects);
+  const [projects, setProjects] = useState<Project[]>(import.meta.env.PROD ? [] : mockProjects);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const activeProjectRef = useRef<Project | null>(null);
   activeProjectRef.current = activeProject;
-  const projectsRef = useRef<Project[]>(mockProjects);
+  const projectsRef = useRef<Project[]>(import.meta.env.PROD ? [] : mockProjects);
   projectsRef.current = projects;
 
   const openProject = useCallback((p: Project) => {
@@ -119,7 +119,7 @@ const Station: React.FC = () => {
 
   useEffect(() => {
     const giveUp = setTimeout(() => {
-      setProjects((curr) => (curr && curr.length ? curr : mockProjects));
+      setProjects((curr) => (curr && curr.length ? curr : (import.meta.env.PROD ? [] : mockProjects)));
       setProjectsDone(true);
     }, 4000); // never hang on a slow CMS
     getProjects()
@@ -128,8 +128,8 @@ const Station: React.FC = () => {
         setProjects(merged);
       })
       .catch((err) => {
-        console.warn('Failed to load CMS projects, using mock projects fallback:', err);
-        setProjects(mockProjects);
+        console.warn('Failed to load CMS projects:', err);
+        setProjects(import.meta.env.PROD ? [] : mockProjects);
       })
       .finally(() => setProjectsDone(true));
     return () => clearTimeout(giveUp);
@@ -981,7 +981,10 @@ const Station: React.FC = () => {
     things.push({
       pos: new THREE.Vector3(0, 1.2, 0),
       label: 'Open Projects Archive',
-      action: () => openProject(projectsRef.current[0] || mockProjects[0]),
+      action: () => {
+        const p = projectsRef.current[0] || (import.meta.env.PROD ? null : mockProjects[0]);
+        if (p) openProject(p);
+      },
     });
     const sign = (grp: THREE.Group, cx: number, cz: number, r: number, t: number, text: string) => {
       const [x, z, ry] = pol(cx, cz, r, t);
@@ -1025,7 +1028,10 @@ const Station: React.FC = () => {
     things.push({
       pos: new THREE.Vector3(CC, 1.2, 0),
       label: 'Access Project Terminal',
-      action: () => openProject(projectsRef.current[0] || mockProjects[0]),
+      action: () => {
+        const p = projectsRef.current[0] || (import.meta.env.PROD ? null : mockProjects[0]);
+        if (p) openProject(p);
+      },
     });
     for (const t of [0.6, 0.95, 2.1, 2.5, 3.72, 5.7]) consoleDesk(contactG, ...pol(CC, 0, 7.9, t), 0xffb347);
 
@@ -1244,7 +1250,7 @@ const Station: React.FC = () => {
       )}
       <ProjectMenuModal
         project={activeProject}
-        projects={projects.length ? projects : mockProjects}
+        projects={projects.length ? projects : (import.meta.env.PROD ? [] : mockProjects)}
         isOpen={Boolean(activeProject && !game)}
         onClose={closeProject}
         onSelectProject={setActiveProject}
@@ -1265,10 +1271,13 @@ const Station: React.FC = () => {
 
           <button
             className="flex items-center gap-2 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-3.5 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
-            onClick={() => openProject(projects[0] || mockProjects[0])}
+            onClick={() => {
+              const p = projects[0] || (import.meta.env.PROD ? null : mockProjects[0]);
+              if (p) openProject(p);
+            }}
           >
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span>Projects ({projects.length || mockProjects.length})</span>
+            <span>Projects ({projects.length})</span>
           </button>
         </div>
       )}

@@ -87,11 +87,17 @@ export const mockProjects: Project[] = [
 ];
 
 export function mergeWithMockProjects(sanityProjects: Project[] = []): Project[] {
+  // On production: NEVER use mock projects, only real projects from CMS!
+  if (import.meta.env.PROD) {
+    return sanityProjects || [];
+  }
+
+  // In development, if no CMS projects, return mock projects for testing
   if (!sanityProjects || sanityProjects.length === 0) {
     return mockProjects;
   }
 
-  // Enrich any sanity projects that match mock IDs with mock tags/extras if missing
+  // In development, enrich and merge so developer can test full grids & layouts
   const enrichedSanity = sanityProjects.map((p) => {
     const mockMatch = mockProjects.find((m) => m.id === p.id);
     if (!mockMatch) return p;

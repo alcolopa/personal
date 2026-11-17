@@ -21,8 +21,9 @@ const Projects: React.FC = () => {
       try {
         const fetched = await getProjects();
         setProjects(mergeWithMockProjects(fetched));
-      } catch {
-        setProjects(mockProjects);
+      } catch (err) {
+        console.error('Failed to load projects:', err);
+        setProjects(import.meta.env.PROD ? [] : mockProjects);
       } finally {
         setLoading(false);
       }

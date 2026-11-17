@@ -17,13 +17,20 @@ const ProjectDetails: React.FC = () => {
         const fetched = await getProjectBySlug(slug as string);
         if (fetched) {
           setProject(fetched);
-        } else {
+        } else if (!import.meta.env.PROD) {
           const mock = mockProjects.find((m) => m.id === slug);
           setProject(mock || null);
+        } else {
+          setProject(null);
         }
-      } catch {
-        const mock = mockProjects.find((m) => m.id === slug);
-        setProject(mock || null);
+      } catch (err) {
+        console.error('Failed to load project:', err);
+        if (!import.meta.env.PROD) {
+          const mock = mockProjects.find((m) => m.id === slug);
+          setProject(mock || null);
+        } else {
+          setProject(null);
+        }
       } finally {
         setLoading(false);
       }

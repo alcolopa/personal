@@ -728,6 +728,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           c.strokeRect(menuX + 16, menuY + 40, picW, picH);
 
           const img = imageCache.get(current.id);
+          const hasImg = Boolean(getProjectImageUrl(current.image));
           if (img && img.complete && img.naturalWidth > 0) {
             c.save();
             c.beginPath();
@@ -739,7 +740,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             c.fillStyle = '#71717a';
             c.font = '11px monospace';
             c.textAlign = 'center';
-            c.fillText('LOADING IMAGE...', menuX + 16 + picW / 2, menuY + 40 + picH / 2);
+            c.fillText(hasImg ? 'LOADING IMAGE...' : 'NO PREVIEW AVAILABLE', menuX + 16 + picW / 2, menuY + 40 + picH / 2);
           }
 
           if (current.is_featured) {
@@ -789,6 +790,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           c.strokeRect(menuX + 16, menuY + 36, picW, picH);
 
           const img = imageCache.get(current.id);
+          const hasImg = Boolean(getProjectImageUrl(current.image));
           if (img && img.complete && img.naturalWidth > 0) {
             c.save();
             c.beginPath();
@@ -796,6 +798,11 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             c.clip();
             c.drawImage(img, menuX + 17, menuY + 37, picW - 2, picH - 2);
             c.restore();
+          } else {
+            c.fillStyle = '#71717a';
+            c.font = '10px monospace';
+            c.textAlign = 'center';
+            c.fillText(hasImg ? 'LOADING IMAGE...' : 'NO PREVIEW AVAILABLE', menuX + 16 + picW / 2, menuY + 36 + picH / 2);
           }
 
           c.fillStyle = '#ffa73d';
