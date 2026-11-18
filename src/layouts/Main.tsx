@@ -20,8 +20,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       return () => obs.disconnect();
   }, []);
 
-    const lightLogo = 'https://placehold.co/40/000000/FFFFFF?text=EM';
-    const darkLogo = 'https://placehold.co/40/FFFFFF/000000?text=EM';
+    const lightLogo = '/brand/em-logo-light.svg';
+    const darkLogo = '/brand/em-logo-badge.svg';
 
     const links = (
         <>

@@ -218,6 +218,190 @@ class StationAudioManager {
     }
   }
 
+  // --- Arcade Car SFX Engine ---
+  private driftNoiseNode: AudioBufferSourceNode | null = null;
+  private driftGainNode: GainNode | null = null;
+  private lastDriftTime: number = 0;
+
+  public playDriftScreech(intensity: number = 1.0) {
+    if (!this.ctx || this.isMuted) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+
+    const now = this.ctx.currentTime;
+    if (now - this.lastDriftTime < 0.12) return;
+    this.lastDriftTime = now;
+
+    try {
+      const bufferSize = Math.floor(this.ctx.sampleRate * 0.18);
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
+      }
+
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(1400 + Math.random() * 300, now);
+      filter.Q.setValueAtTime(4.0, now);
+
+      const gain = this.ctx.createGain();
+      const vol = Math.min(0.28, 0.08 + intensity * 0.18);
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.sfxGain!);
+
+      noise.start(now);
+      noise.stop(now + 0.18);
+    } catch {
+      // ignore
+    }
+  }
+
+  public playNitroBoost() {
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(420, now + 0.35);
+
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(800, now);
+      filter.frequency.exponentialRampToValueAtTime(2400, now + 0.2);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.sfxGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.42);
+    } catch {
+      // ignore
+    }
+  }
+
+  public playCoinPickup() {
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    try {
+      const notes = [880, 1320]; // A5 -> E6
+      notes.forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+        const t = now + idx * 0.07;
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+
+        gain.gain.setValueAtTime(0.32, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+
+        osc.connect(gain);
+        gain.connect(this.sfxGain!);
+
+        osc.start(t);
+        osc.stop(t + 0.15);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  public playCrateSmash() {
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+
+      gain.gain.setValueAtTime(0.45, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.sfxGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.23);
+    } catch {
+      // ignore
+    }
+  }
+
+  public playDriftBonus() {
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    try {
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 -> E5 -> G5 -> C6
+      notes.forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+        const t = now + idx * 0.05;
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, t);
+
+        gain.gain.setValueAtTime(0.28, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+
+        osc.connect(gain);
+        gain.connect(this.sfxGain!);
+
+        osc.start(t);
+        osc.stop(t + 0.13);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  public playCarBump() {
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.exponentialRampToValueAtTime(45, now + 0.12);
+
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(350, now);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.sfxGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.14);
+    } catch {
+      // ignore
+    }
+  }
+
   public stop() {
     if (this.nextChordTimeout) {
       clearTimeout(this.nextChordTimeout);

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  
+  <g transform="translate(68, 68)">
+    <!-- 
+      Canvas active area: 376 x 376
+      Precision 20px negative space channel
+    -->
+    <!-- E-ELEMENT: Spine and 3 horizontal structural beams -->
+    <path d="
+      M 16 0 
+      H 170 
+      C 181 0 190 9 190 20 
+      V 56 
+      C 190 67 181 76 170 76 
+      H 88 
+      V 148 
+      H 156 
+      C 167 148 176 157 176 168 
+      V 204 
+      C 176 215 167 224 156 224 
+      H 88 
+      V 296 
+      H 170 
+      C 181 296 190 305 190 316 
+      V 352 
+      C 190 363 181 372 170 372 
+      H 16 
+      C 5 372 0 363 0 352 
+      V 20 
+      C 0 9 5 0 16 0 Z
+    " fill="#6366F1"/>
+
+    <!-- M-ELEMENT: Dynamic twin-peak chevron and right vertical pillar -->
+    <path d="
+      M 216 0 
+      H 360 
+      C 371 0 376 9 376 20 
+      V 352 
+      C 376 363 371 372 360 372 
+      H 308 
+      C 297 372 292 363 292 352 
+      V 136 
+      L 242 222 
+      C 236 232 220 232 214 222 
+      L 186 174 
+      C 181 165 188 152 199 152 
+      H 214 
+      L 240 102 
+      H 216 
+      C 205 102 196 93 196 82 
+      V 20 
+      C 196 9 205 0 216 0 Z
+    " fill="#FF5722"/>
+
+    <!-- CORE ANCHOR: Titanium White Precision Node -->
+    <circle cx="292" cy="76" r="14" fill="#FFFFFF"/>
+  </g>
+</svg>
