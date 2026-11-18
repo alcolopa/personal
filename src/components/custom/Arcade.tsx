@@ -2,9 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Project } from '@/types/Project';
 import { getProjectImageUrl } from '@/lib/projectUtils';
 import stationAudio from '@/lib/stationAudio';
-import { Maximize, Minimize, RefreshCw } from 'lucide-react';
+import { Maximize, Minimize, RefreshCw, Gamepad2 } from 'lucide-react';
 
 type Ctx = { projects: Project[]; open: (p: Project) => void };
+type Dims = {
+  W: number;
+  H: number;
+  touch: boolean;
+  joy: { x: number; y: number };
+};
 type Game = {
   act?: () => void;
   onKeyDown?: (code: string) => boolean;
@@ -82,9 +88,9 @@ function wrapCanvasText(
 }
 
 // ============================================================================
-// GAME 1: SNAKE (Bug-Fixed: Direction Buffering, Food Placement & Mobile Restart)
+// GAME 1: SNAKE (Joystick & Direction Buffering Support)
 // ============================================================================
-const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch: boolean }): Game => {
+const snake = (k: Keys, _ctx: Ctx, getDims: () => Dims): Game => {
   const C = 24;
   let s = [{ x: 8, y: 8 }];
   let d = { x: 1, y: 0 };
@@ -111,7 +117,6 @@ const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch:
   };
 
   const setDir = (nx: number, ny: number) => {
-    // Prevent 180° instant turn into self based on last moved direction
     if (nx === -lastD.x && ny === -lastD.y) return;
     nextD = { x: nx, y: ny };
   };
@@ -156,15 +161,27 @@ const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch:
       }
     },
     step(dt) {
-      const { W, H, touch } = getDims();
+      const { W, H, touch, joy } = getDims();
       const bottomSafe = touch ? 140 : 20;
       const cols = Math.max(8, Math.floor(W / C));
       const rows = Math.max(8, Math.floor((H - bottomSafe) / C));
 
-      if (up(k)) setDir(0, -1);
-      else if (down(k)) setDir(0, 1);
-      else if (left(k)) setDir(-1, 0);
-      else if (right(k)) setDir(1, 0);
+      // 1. Joystick input check
+      if (joy && Math.hypot(joy.x, joy.y) > 0.35) {
+        if (Math.abs(joy.x) > Math.abs(joy.y)) {
+          if (joy.x > 0.35) setDir(1, 0);
+          else if (joy.x < -0.35) setDir(-1, 0);
+        } else {
+          if (joy.y > 0.35) setDir(0, 1);
+          else if (joy.y < -0.35) setDir(0, -1);
+        }
+      } else {
+        // 2. Keyboard fallback
+        if (up(k)) setDir(0, -1);
+        else if (down(k)) setDir(0, 1);
+        else if (left(k)) setDir(-1, 0);
+        else if (right(k)) setDir(1, 0);
+      }
 
       t += dt;
       if (t < 0.08 || dead) return;
@@ -211,9 +228,9 @@ const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch:
 };
 
 // ============================================================================
-// GAME 2: PONG (Bug-Fixed: Tunneling Prevention, Ball Radius & Touch Restart)
+// GAME 2: PONG (Analog Joystick & Continuous Physics Support)
 // ============================================================================
-const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game => {
+const pong = (k: Keys, _ctx: Ctx, getDims: () => Dims): Game => {
   let py = 200;
   let ay = 200;
   let sc = [0, 0];
@@ -252,10 +269,16 @@ const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game
     },
     step(dt) {
       if (isOver()) return;
-      const { W, H } = getDims();
+      const { W, H, joy } = getDims();
       const P = Math.max(70, Math.min(130, H * 0.22));
 
-      py = Math.max(0, Math.min(H - P, py + ((down(k) ? 1 : 0) - (up(k) ? 1 : 0)) * 500 * dt));
+      // Joystick Analog Y or Keyboard UP/DOWN
+      let dir = (down(k) ? 1 : 0) - (up(k) ? 1 : 0);
+      if (joy && Math.abs(joy.y) > 0.08) {
+        dir = joy.y;
+      }
+
+      py = Math.max(0, Math.min(H - P, py + dir * 520 * dt));
       ay = Math.max(0, Math.min(H - P, ay + Math.sign(b.y - P / 2 - ay) * Math.min(340 * dt, Math.abs(b.y - P / 2 - ay))));
 
       const prevX = b.x;
@@ -272,7 +295,7 @@ const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game
         b.vy = -Math.abs(b.vy);
       }
 
-      // Left Player Paddle Collision (Paddle at x=20, width=10 -> edge at 30)
+      // Left Player Paddle Collision
       const pEdge = 30;
       if (b.vx < 0 && prevX - BALL_R >= pEdge && b.x - BALL_R <= pEdge) {
         if (b.y + BALL_R >= py && b.y - BALL_R <= py + P) {
@@ -283,7 +306,7 @@ const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game
         }
       }
 
-      // Right AI Paddle Collision (Paddle at x=W-30, width=10 -> edge at W-30)
+      // Right AI Paddle Collision
       const aiEdge = W - 30;
       if (b.vx > 0 && prevX + BALL_R <= aiEdge && b.x + BALL_R >= aiEdge) {
         if (b.y + BALL_R >= ay && b.y - BALL_R <= ay + P) {
@@ -329,9 +352,9 @@ const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game
 };
 
 // ============================================================================
-// GAME 3: BREAKOUT (Bug-Fixed: Accurate AABB Physics, Win Detection & Mobile Restart)
+// GAME 3: BREAKOUT (Analog Joystick Paddle Steering Support)
 // ============================================================================
-const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch: boolean }): Game => {
+const breakout = (k: Keys, _ctx: Ctx, getDims: () => Dims): Game => {
   let init = false;
   let px = 300;
   let b = { x: 300, y: 400, vx: 260, vy: -320 };
@@ -391,7 +414,7 @@ const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; tou
       px = Math.max(0, Math.min(W - PW, cx - PW / 2));
     },
     step(dt) {
-      const { W, H, touch } = getDims();
+      const { W, H, touch, joy } = getDims();
       const bottomMargin = touch ? 140 : 26;
       if (!init) {
         setupBricks(W);
@@ -402,7 +425,13 @@ const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; tou
       if (isOver()) return;
 
       const PW = Math.max(80, Math.min(140, W * 0.16));
-      px = Math.max(0, Math.min(W - PW, px + ((right(k) ? 1 : 0) - (left(k) ? 1 : 0)) * 580 * dt));
+
+      // Joystick Analog X or Keyboard LEFT/RIGHT
+      let dir = (right(k) ? 1 : 0) - (left(k) ? 1 : 0);
+      if (joy && Math.abs(joy.x) > 0.08) {
+        dir = joy.x;
+      }
+      px = Math.max(0, Math.min(W - PW, px + dir * 600 * dt));
 
       b.x += b.vx * dt;
       b.y += b.vy * dt;
@@ -485,7 +514,7 @@ const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; tou
 };
 
 // ============================================================================
-// GAME 4: CYBER DRIFT (Procedural Dynamic Road Networks & Rich Racing World)
+// GAME 4: CYBER DRIFT (Analog Joystick Steering & Throttle Support)
 // ============================================================================
 
 interface TrackPoint {
@@ -528,16 +557,15 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
   let controlPoints: { x: number; y: number }[] = [];
 
   if (archetype === 'circuit') {
-    // Grand Prix Circuit with chicanes, sweeping bends and long straights
     const rx = 1050;
     const ry = 850;
     const N = 14;
     for (let i = 0; i < N; i++) {
       const theta = (i * Math.PI * 2) / N;
       let rOffset = (Math.sin(theta * 3) + Math.cos(theta * 2)) * 140;
-      if (i === 3 || i === 4) rOffset -= 220; // chicane bend
-      if (i === 8) rOffset += 240; // wide carousel
-      if (i === 11) rOffset -= 180; // hairpin entry
+      if (i === 3 || i === 4) rOffset -= 220;
+      if (i === 8) rOffset += 240;
+      if (i === 11) rOffset -= 180;
       const rX = rx + rOffset * 0.9;
       const rY = ry + rOffset * 0.9;
       controlPoints.push({
@@ -546,25 +574,23 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
       });
     }
   } else if (archetype === 'touge') {
-    // Akina Mountain Touge: Consecutive S-turns and sharp 180-degree hairpins
     controlPoints = [
       { x: cx - 950, y: cy - 750 },
       { x: cx - 400, y: cy - 800 },
       { x: cx + 500, y: cy - 750 },
       { x: cx + 900, y: cy - 500 },
-      { x: cx + 600, y: cy - 250 }, // Hairpin 1
+      { x: cx + 600, y: cy - 250 },
       { x: cx - 200, y: cy - 300 },
-      { x: cx - 750, y: cy - 50 },  // Hairpin 2
+      { x: cx - 750, y: cy - 50 },
       { x: cx - 100, y: cy + 100 },
-      { x: cx + 700, y: cy + 50 },  // Hairpin 3
+      { x: cx + 700, y: cy + 50 },
       { x: cx + 950, y: cy + 400 },
-      { x: cx + 450, y: cy + 700 }, // Hairpin 4
+      { x: cx + 450, y: cy + 700 },
       { x: cx - 500, y: cy + 750 },
       { x: cx - 950, y: cy + 450 },
       { x: cx - 850, y: cy - 200 },
     ];
   } else if (archetype === 'metropolis') {
-    // Cyber Metropolis Expressway with central roundabout and expressway loops
     const R = 720;
     controlPoints = [
       { x: cx - R, y: cy - R },
@@ -572,14 +598,13 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
       { x: cx + R, y: cy - R },
       { x: cx + R + 180, y: cy },
       { x: cx + R, y: cy + R },
-      { x: cx + 180, y: cy + 300 }, // Roundabout entrance
+      { x: cx + 180, y: cy + 300 },
       { x: cx, y: cy },
       { x: cx - 180, y: cy + 300 },
       { x: cx - R, y: cy + R },
       { x: cx - R - 180, y: cy },
     ];
   } else {
-    // Figure-8 Drift Arena
     const R = 540;
     controlPoints = [
       { x: cx - R, y: cy - 420 },
@@ -597,7 +622,6 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
     ];
   }
 
-  // Sample Catmull-Rom spline uniformly along the closed loop
   const points: { x: number; y: number }[] = [];
   const N = controlPoints.length;
   for (let i = 0; i < N; i++) {
@@ -623,12 +647,11 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
         (2 * p1.y +
           (-p0.y + p2.y) * t +
           (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+          (-p0.y + 3 * p1.x - 3 * p2.y + p3.y) * t3);
       points.push({ x, y });
     }
   }
 
-  // Precompute tangents, normals, curvature, and special zones
   const trackPoints: TrackPoint[] = [];
   const total = points.length;
   for (let i = 0; i < total; i++) {
@@ -645,7 +668,6 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
     const ny = tx;
     const angle = Math.atan2(ty, tx);
 
-    // Approximate curvature
     const prevAngle = Math.atan2(curr.y - prev.y, curr.x - prev.x);
     const nextAngle = Math.atan2(next.y - curr.y, next.x - curr.x);
     let diff = Math.abs(nextAngle - prevAngle);
@@ -669,13 +691,11 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
     });
   }
 
-  // Distribute projects along scenic turnouts along the track
   const spots: ProjectSpot[] = [];
   const numProjects = projects.length;
   for (let idx = 0; idx < numProjects; idx++) {
     const targetIdx = Math.floor((idx + 0.5) * (total / numProjects)) % total;
     const tp = trackPoints[targetIdx];
-    // Offset showcase bay safely from the road
     const bayDistance = 125;
     const side = idx % 2 === 0 ? 1 : -1;
     spots.push({
@@ -694,7 +714,7 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
 const drive = (
   k: Keys,
   { projects }: Ctx,
-  getDims: () => { W: number; H: number; touch: boolean }
+  getDims: () => Dims
 ): Game => {
   const archetypes: TrackArchetype[] = ['circuit', 'touge', 'metropolis', 'arena'];
   let currentArchetypeIdx = Math.floor(Math.random() * archetypes.length);
@@ -706,7 +726,6 @@ const drive = (
 
   const seen = new Set<string>();
 
-  // --- 1. Enhanced Car Physics State ---
   const car = {
     x: trackPoints[0]?.x || 400,
     y: trackPoints[0]?.y || 400,
@@ -730,7 +749,6 @@ const drive = (
   let selectedProjectIdx = 0;
   let selectedButton = 0;
 
-  // --- 2. Track Items: Stars, Nitro Canisters, Cones, NPCs ---
   let stars: { id: number; x: number; y: number; collected: boolean; anim: number }[] = [];
   let nitroPods: { id: number; x: number; y: number; collected: boolean; respawn: number }[] = [];
   let cones: { x: number; y: number; vx: number; vy: number; rot: number; vrot: number }[] = [];
@@ -748,7 +766,6 @@ const drive = (
   const npcColors = ['#f59e0b', '#ec4899', '#10b981', '#8b5cf6', '#06b6d4'];
 
   const initTrackItems = () => {
-    // Populate Stars along the racing line
     stars = [];
     const starInterval = Math.floor(trackPoints.length / 28);
     for (let i = 0; i < trackPoints.length; i += starInterval) {
@@ -762,7 +779,6 @@ const drive = (
       });
     }
 
-    // Populate Nitro canisters on corner exits
     nitroPods = [];
     for (let i = 0; i < trackPoints.length; i += Math.floor(trackPoints.length / 8)) {
       const tp = trackPoints[i];
@@ -775,7 +791,6 @@ const drive = (
       });
     }
 
-    // Populate Cones on apexes and parking bay entries
     cones = [];
     trackPoints.forEach((tp, i) => {
       if (tp.isApex && i % 18 === 0) {
@@ -794,7 +809,6 @@ const drive = (
       cones.push({ x: s.x + 38, y: s.y + 40, vx: 0, vy: 0, rot: 0, vrot: 0 });
     });
 
-    // Populate NPC Racers along the track
     npcCars = Array.from({ length: 4 }, (_, idx) => {
       const startIdx = Math.floor((idx + 0.3) * (trackPoints.length / 4)) % trackPoints.length;
       const tp = trackPoints[startIdx];
@@ -813,7 +827,6 @@ const drive = (
 
   initTrackItems();
 
-  // Skid Marks, Particles & Score Popups
   const skidMarks: { x1: number; y1: number; x2: number; y2: number; alpha: number; color?: string }[] = [];
   const particles: {
     x: number;
@@ -840,7 +853,6 @@ const drive = (
     trackPoints = generated.trackPoints;
     spots = generated.spots;
 
-    // Reset car at start line
     car.x = trackPoints[0].x;
     car.y = trackPoints[0].y;
     car.a = trackPoints[0].angle;
@@ -865,13 +877,11 @@ const drive = (
     );
   };
 
-  // Preload project images
   projects.forEach((p) => {
     const url = getProjectImageUrl(p.image);
     if (url) getOrLoadImage(p.id, url);
   });
 
-  // Responsive layout for In-Game Project Menu
   const getMenuLayout = () => {
     const { W, H } = getDims();
     const isMobile = W < 640;
@@ -1117,10 +1127,25 @@ const drive = (
     step(dt) {
       if (mode === 'menu') return;
 
+      const { joy } = getDims();
+
       // --- 1. Controls & Input Mapping ---
-      const steerInput = (right(k) ? 1 : 0) - (left(k) ? 1 : 0);
-      const throttleInput = up(k) ? 1 : 0;
-      const brakeInput = down(k) ? 1 : 0;
+      // Steering: true analog stick steering with keyboard fallback
+      let steerInput = (right(k) ? 1 : 0) - (left(k) ? 1 : 0);
+      if (joy && Math.abs(joy.x) > 0.05) {
+        steerInput = joy.x;
+      }
+
+      // Throttle & Brake: joystick up/down or gas/brake buttons/keys
+      let throttleInput = up(k) ? 1 : 0;
+      let brakeInput = down(k) ? 1 : 0;
+      if (joy && joy.y < -0.1) {
+        throttleInput = Math.max(throttleInput, -joy.y);
+      }
+      if (joy && joy.y > 0.1) {
+        brakeInput = Math.max(brakeInput, joy.y);
+      }
+
       const wantDrift = driftKey(k);
       const wantBoost = boostKey(k);
 
@@ -1139,7 +1164,6 @@ const drive = (
         car.nitro = Math.min(100, car.nitro + 8 * dt);
       }
 
-      // Responsive Speed & Acceleration
       const maxSpeed = car.isBoosting ? 680 : 470;
       const accel = car.isBoosting ? 1180 : 560;
 
@@ -1153,26 +1177,24 @@ const drive = (
 
       // Throttle & Brake
       if (throttleInput > 0) {
-        forwardVel += accel * dt;
+        forwardVel += accel * throttleInput * dt;
       }
       if (brakeInput > 0) {
         if (forwardVel > 30) {
-          forwardVel -= 820 * dt; // Strong Brakes
+          forwardVel -= 820 * brakeInput * dt;
         } else {
-          forwardVel -= 300 * dt; // Reverse
+          forwardVel -= 300 * brakeInput * dt;
         }
       }
 
-      // --- 4. Realistic Drift Physics & Lateral Slip ---
+      // --- 4. Drift Physics & Lateral Slip ---
       const speed = Math.hypot(car.vx, car.vy);
       const isDriftingInput = wantDrift || (brakeInput > 0 && Math.abs(steerInput) > 0.3 && speed > 150);
       const isSlipping = Math.abs(lateralVel) > 80 || (isDriftingInput && speed > 120);
 
-      // Lateral grip drops during drift so the tail kicks out!
       const lateralGrip = isSlipping ? 0.35 : 0.94;
       const lateralFriction = Math.pow(1 - lateralGrip, dt * 10);
 
-      // Distance to road check for off-road friction
       let nearestPoint = trackPoints[0];
       let minTrackDist = 999999;
       for (let i = 0; i < trackPoints.length; i += 3) {
@@ -1183,7 +1205,7 @@ const drive = (
         }
       }
 
-      const isOffRoad = minTrackDist > 65; // outside road ribbon
+      const isOffRoad = minTrackDist > 65;
       const rollingFriction = Math.pow(isOffRoad ? 0.88 : 0.94, dt * 5);
 
       lateralVel *= lateralFriction;
@@ -1204,16 +1226,13 @@ const drive = (
         });
       }
 
-      // Reconstruct velocity
       car.vx = fwdX * forwardVel + rightX * lateralVel;
       car.vy = fwdY * forwardVel + rightY * lateralVel;
 
-      // Turning & Oversteer
       const turnRate = (forwardVel / 180) * car.steerAngle * 4.5;
       const driftOversteer = isSlipping ? Math.sign(lateralVel) * 1.9 * (speed / 300) : 0;
       car.a += (turnRate + driftOversteer) * dt;
 
-      // Cap speed
       const curSpeed = Math.hypot(car.vx, car.vy);
       if (curSpeed > maxSpeed) {
         car.vx = (car.vx / curSpeed) * maxSpeed;
@@ -1234,7 +1253,6 @@ const drive = (
         car.isDrifting = true;
         car.driftTime += dt;
 
-        // Drift Zone Multiplier Bonus
         const inDriftZone = nearestPoint.isDriftZone;
         const baseMultiplier = 1.0 + Math.floor(car.driftTime * 2) * 0.5;
         car.driftCombo = Math.min(6.0, inDriftZone ? baseMultiplier * 2.0 : baseMultiplier);
@@ -1243,7 +1261,6 @@ const drive = (
 
         stationAudio.playDriftScreech(Math.min(1.0, Math.abs(lateralVel) / 220));
 
-        // Deposit tire skid marks
         skidMarks.push({
           x1: rearLeftX,
           y1: rearLeftY,
@@ -1261,7 +1278,6 @@ const drive = (
           color: inDriftZone ? 'rgba(236,72,153,0.45)' : undefined,
         });
 
-        // Puff smoke particles
         if (Math.random() < 0.6) {
           particles.push({
             x: rearLeftX + (Math.random() - 0.5) * 6,
@@ -1306,7 +1322,6 @@ const drive = (
         car.isDrifting = false;
       }
 
-      // Check Speed Boost Pad trigger
       if (nearestPoint.isBoostPad && minTrackDist < 40 && !car.isBoosting) {
         car.vx += fwdX * 240;
         car.vy += fwdY * 240;
@@ -1315,14 +1330,12 @@ const drive = (
         addPopup('BOOST PAD! ⚡', car.x, car.y - 30, '#06b6d4');
       }
 
-      // Fade skid marks
       for (let i = skidMarks.length - 1; i >= 0; i--) {
         skidMarks[i].alpha -= dt * 0.05;
         if (skidMarks[i].alpha <= 0) skidMarks.splice(i, 1);
       }
       if (skidMarks.length > 500) skidMarks.splice(0, skidMarks.length - 500);
 
-      // Update particles
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.x += p.vx * dt;
@@ -1333,7 +1346,6 @@ const drive = (
         if (p.life <= 0) particles.splice(i, 1);
       }
 
-      // Update popups
       for (let i = popups.length - 1; i >= 0; i--) {
         const pop = popups[i];
         pop.y -= 30 * dt;
@@ -1341,7 +1353,6 @@ const drive = (
         if (pop.alpha <= 0) popups.splice(i, 1);
       }
 
-      // --- 6. Star Coins Pickup Collision ---
       stars.forEach((s) => {
         if (!s.collected && Math.hypot(s.x - car.x, s.y - car.y) < 38) {
           s.collected = true;
@@ -1352,7 +1363,6 @@ const drive = (
         s.anim += dt * 3;
       });
 
-      // --- 7. Nitro Pods Collision ---
       nitroPods.forEach((np) => {
         if (!np.collected && Math.hypot(np.x - car.x, np.y - car.y) < 38) {
           np.collected = true;
@@ -1368,7 +1378,6 @@ const drive = (
         }
       });
 
-      // --- 8. Traffic Cones Physics Collision ---
       cones.forEach((cone) => {
         cone.x += cone.vx * dt;
         cone.y += cone.vy * dt;
@@ -1386,9 +1395,8 @@ const drive = (
         }
       });
 
-      // --- 9. Autonomous AI Racers following the road track ---
       npcCars.forEach((npc) => {
-        const stepDist = (npc.v * dt) / 14; // advance along track points
+        const stepDist = (npc.v * dt) / 14;
         npc.trackIdx = (npc.trackIdx + stepDist) % trackPoints.length;
         const currentIdx = Math.floor(npc.trackIdx);
         const nextIdx = (currentIdx + 1) % trackPoints.length;
@@ -1409,7 +1417,6 @@ const drive = (
         }
         if (dist > 120) npc.nearMissed = false;
 
-        // Bump collision
         if (dist < 32) {
           const bumpAngle = Math.atan2(car.y - npc.y, car.x - npc.x);
           car.vx += Math.cos(bumpAngle) * 180;
@@ -1418,7 +1425,6 @@ const drive = (
         }
       });
 
-      // Check near project showcases along the track
       near = spots.find((s) => Math.hypot(s.x - car.x, s.y - car.y) < 85) ?? null;
       if (near && !seen.has(near.p.id)) {
         seen.add(near.p.id);
@@ -1431,15 +1437,12 @@ const drive = (
     draw(c) {
       const { W, H, touch } = getDims();
 
-      // --- 1. World View with Camera Centered on Car ---
       c.save();
       c.translate(W / 2 - car.x, H / 2 - car.y);
 
-      // Deep dark cyber terrain background
       c.fillStyle = '#111116';
       c.fillRect(0, 0, WW, WH);
 
-      // Cyber Grid Lines
       c.strokeStyle = 'rgba(255,255,255,0.025)';
       c.lineWidth = 1;
       const gridSize = 160;
@@ -1454,7 +1457,6 @@ const drive = (
       }
       c.stroke();
 
-      // --- Draw Procedural Roads ---
       const roadW = 96;
       const halfW = roadW / 2;
       const totalPoints = trackPoints.length;
@@ -1487,19 +1489,18 @@ const drive = (
       c.closePath();
       c.stroke();
 
-      // 3. Racing Kerbs (Alternating Red and White on Apex Corners)
+      // 3. Racing Kerbs
       for (let i = 0; i < totalPoints; i += 2) {
         const pt = trackPoints[i];
         if (pt.isApex) {
           const isRed = (i / 2) % 2 === 0;
           c.fillStyle = isRed ? '#ef4444' : '#f8fafc';
-          // Outer and inner curb strips
           c.fillRect(pt.x + pt.nx * (halfW + 4) - 4, pt.y + pt.ny * (halfW + 4) - 4, 8, 8);
           c.fillRect(pt.x - pt.nx * (halfW + 4) - 4, pt.y - pt.ny * (halfW + 4) - 4, 8, 8);
         }
       }
 
-      // 4. Drift Zones (Neon Pink Surface Overlay & Text)
+      // 4. Drift Zones
       for (let i = 0; i < totalPoints; i += 4) {
         const pt = trackPoints[i];
         if (pt.isDriftZone) {
@@ -1557,7 +1558,7 @@ const drive = (
         c.restore();
       }
 
-      // Draw Persistent Skid Marks
+      // Skid Marks
       skidMarks.forEach((sm) => {
         c.strokeStyle = sm.color || `rgba(10, 10, 12, ${sm.alpha})`;
         c.lineWidth = 5;
@@ -1567,12 +1568,11 @@ const drive = (
         c.stroke();
       });
 
-      // Draw Project Showcases / Pit Stops Along the Road
+      // Project Showcases
       spots.forEach((s) => {
         const isNear = near?.p.id === s.p.id;
         const roadPt = trackPoints[s.roadIdx];
 
-        // Painted entrance slip lane from road to bay
         if (roadPt) {
           c.strokeStyle = isNear ? '#fbbf24' : 'rgba(251, 191, 36, 0.35)';
           c.lineWidth = 3;
@@ -1584,18 +1584,15 @@ const drive = (
           c.setLineDash([]);
         }
 
-        // Painted parking bay platform
         c.fillStyle = '#18181f';
         c.fillRect(s.x - 52, s.y - 52, 104, 104);
         c.strokeStyle = isNear ? '#fbbf24' : seen.has(s.p.id) ? '#10b981' : '#52525b';
         c.lineWidth = isNear ? 2.5 : 1.5;
         c.strokeRect(s.x - 52, s.y - 52, 104, 104);
 
-        // Building interior
         c.fillStyle = '#09090b';
         c.fillRect(s.x - 44, s.y - 44, 88, 88);
 
-        // Thumbnail image
         const img = imageCache.get(s.p.id);
         if (img && img.complete && img.naturalWidth > 0) {
           c.save();
@@ -1613,12 +1610,10 @@ const drive = (
           c.fillText('SHOWCASE', s.x, s.y + 4);
         }
 
-        // Inner outline
         c.strokeStyle = isNear ? '#fbbf24' : 'rgba(255,255,255,0.2)';
         c.lineWidth = isNear ? 2 : 1;
         c.strokeRect(s.x - 44, s.y - 44, 88, 88);
 
-        // Nameplate banner below pavilion
         c.fillStyle = 'rgba(9, 9, 11, 0.94)';
         c.fillRect(s.x - 60, s.y + 48, 120, 24);
         c.strokeStyle = isNear ? '#fbbf24' : '#52525b';
@@ -1631,7 +1626,6 @@ const drive = (
         c.fillText(`${seen.has(s.p.id) ? '✓ ' : ''}${s.p.title.slice(0, 14)}`, s.x, s.y + 64);
       });
 
-      // Draw Collectible Star Coins
       stars.forEach((s) => {
         if (s.collected) return;
         c.save();
@@ -1654,7 +1648,6 @@ const drive = (
         c.restore();
       });
 
-      // Draw Nitro Pods
       nitroPods.forEach((np) => {
         if (np.collected) return;
         c.save();
@@ -1673,7 +1666,6 @@ const drive = (
         c.restore();
       });
 
-      // Draw Traffic Cones
       cones.forEach((cone) => {
         c.save();
         c.translate(cone.x, cone.y);
@@ -1690,7 +1682,6 @@ const drive = (
         c.restore();
       });
 
-      // Draw AI NPC Traffic Cars
       npcCars.forEach((npc) => {
         c.save();
         c.translate(npc.x, npc.y);
@@ -1701,18 +1692,15 @@ const drive = (
         c.fill();
         c.fillStyle = '#0f172a';
         c.fillRect(-6, -7, 12, 14);
-        // Headlights
         c.fillStyle = '#fef08a';
         c.fillRect(15, -7, 2, 3);
         c.fillRect(15, 4, 2, 3);
-        // Taillights
         c.fillStyle = '#ef4444';
         c.fillRect(-17, -7, 2, 3);
         c.fillRect(-17, 4, 2, 3);
         c.restore();
       });
 
-      // Draw Smoke Particles
       particles.forEach((p) => {
         c.fillStyle = p.color;
         c.globalAlpha = p.alpha;
@@ -1722,18 +1710,16 @@ const drive = (
       });
       c.globalAlpha = 1.0;
 
-      // --- 2. Draw Player Cyber Drift Sports Car ---
+      // 2. Draw Player Cyber Drift Sports Car
       c.save();
       c.translate(car.x, car.y);
       c.rotate(car.a);
 
-      // Ground shadow
       c.fillStyle = 'rgba(0,0,0,0.45)';
       c.beginPath();
       c.roundRect(-24, -13, 48, 26, 6);
       c.fill();
 
-      // Cyber Underglow Neon
       const underglow = car.isBoosting ? '#38bdf8' : car.isDrifting ? '#ec4899' : '#f59e0b';
       c.shadowColor = underglow;
       c.shadowBlur = 18;
@@ -1743,7 +1729,6 @@ const drive = (
       c.globalAlpha = 1.0;
       c.shadowBlur = 0;
 
-      // 4 Wheels (Front wheels visibly turn!)
       const drawWheel = (wx: number, wy: number, angle: number) => {
         c.save();
         c.translate(wx, wy);
@@ -1759,7 +1744,6 @@ const drive = (
       drawWheel(-14, -12, 0);
       drawWheel(-14, 12, 0);
 
-      // Aerodynamic Car Body
       c.fillStyle = '#0284c7';
       c.beginPath();
       c.moveTo(-20, -10);
@@ -1771,11 +1755,9 @@ const drive = (
       c.closePath();
       c.fill();
 
-      // Racing Livery Stripe
       c.fillStyle = '#fbbf24';
       c.fillRect(-20, -2, 43, 4);
 
-      // Cockpit & Windshield
       c.fillStyle = '#09090b';
       c.beginPath();
       c.roundRect(-8, -7, 18, 14, 3);
@@ -1790,14 +1772,12 @@ const drive = (
       c.closePath();
       c.fill();
 
-      // Carbon Rear Wing
       c.fillStyle = '#0f172a';
       c.fillRect(-23, -11, 4, 22);
       c.fillStyle = '#38bdf8';
       c.fillRect(-23, -12, 2, 3);
       c.fillRect(-23, 9, 2, 3);
 
-      // Headlight Beams
       const beamGrad = c.createLinearGradient(23, 0, 130, 0);
       beamGrad.addColorStop(0, 'rgba(255,255,255,0.4)');
       beamGrad.addColorStop(1, 'rgba(255,255,255,0)');
@@ -1814,7 +1794,6 @@ const drive = (
       c.fillRect(22, -8, 2, 4);
       c.fillRect(22, 4, 2, 4);
 
-      // Taillights
       const isBraking = down(k) || car.v < -10;
       c.fillStyle = isBraking ? '#ef4444' : '#991b1b';
       c.shadowColor = '#ef4444';
@@ -1823,7 +1802,6 @@ const drive = (
       c.fillRect(-21, 5, 2, 3);
       c.shadowBlur = 0;
 
-      // Exhaust Fire Flames
       if (up(k) || car.isBoosting) {
         const flameLen = car.isBoosting ? 18 + Math.random() * 12 : 6 + Math.random() * 6;
         c.fillStyle = car.isBoosting ? '#38bdf8' : '#f97316';
@@ -1841,7 +1819,6 @@ const drive = (
 
       c.restore();
 
-      // Floating Score Popups
       popups.forEach((pop) => {
         c.save();
         c.fillStyle = pop.color;
@@ -1854,7 +1831,7 @@ const drive = (
 
       c.restore();
 
-      // --- 3. HUD: Speedometer, Nitro Gauge & Curved Minimap ---
+      // 3. HUD: Speedometer, Nitro Gauge & Curved Minimap
       if (mode === 'drive') {
         const speedKmh = Math.round(Math.abs(car.v) * 0.85);
         const hudX = 20;
@@ -1871,13 +1848,11 @@ const drive = (
         c.textAlign = 'left';
         c.fillText(`${speedKmh} KM/H`, hudX + 10, hudY + 20);
 
-        // Nitro Bar
         c.fillStyle = '#1e293b';
         c.fillRect(hudX + 10, hudY + 28, 120, 8);
         c.fillStyle = car.nitro > 20 ? '#06b6d4' : '#ef4444';
         c.fillRect(hudX + 10, hudY + 28, (car.nitro / 100) * 120, 8);
 
-        // Drift Multiplier badge
         if (car.isDrifting && car.driftCombo > 1.0) {
           c.fillStyle = '#ec4899';
           c.font = 'bold 14px monospace';
@@ -1885,7 +1860,6 @@ const drive = (
           c.fillText(`DRIFT ${car.driftCombo.toFixed(1)}x`, hudX + 150, hudY + 22);
         }
 
-        // Radar Minimap rendering the exact curved road path
         const mw = Math.min(140, Math.max(90, W * 0.18));
         const mh = (mw * WH) / WW;
         const mmX = W - mw - 16;
@@ -1897,7 +1871,6 @@ const drive = (
         c.lineWidth = 1;
         c.strokeRect(mmX, mmY, mw, mh);
 
-        // Draw track curve on minimap
         c.strokeStyle = 'rgba(255,255,255,0.35)';
         c.lineWidth = 2.5;
         c.beginPath();
@@ -1911,19 +1884,16 @@ const drive = (
         c.closePath();
         c.stroke();
 
-        // Project dots
         spots.forEach((s) => {
           c.fillStyle = seen.has(s.p.id) ? '#10b981' : '#e0a030';
           c.fillRect(mmX + (s.x / WW) * mw - 3, mmY + (s.y / WH) * mh - 3, 6, 6);
         });
 
-        // NPC dots
         npcCars.forEach((npc) => {
           c.fillStyle = npc.color;
           c.fillRect(mmX + (npc.x / WW) * mw - 2, mmY + (npc.y / WH) * mh - 2, 4, 4);
         });
 
-        // Player dot with heading arrow
         const pmX = mmX + (car.x / WW) * mw;
         const pmY = mmY + (car.y / WH) * mh;
         c.fillStyle = '#38bdf8';
@@ -1935,20 +1905,19 @@ const drive = (
         c.lineTo(pmX + Math.cos(car.a) * 7, pmY + Math.sin(car.a) * 7);
         c.stroke();
 
-        // Control hints bar for desktop players
         if (!touch) {
           c.fillStyle = 'rgba(255, 255, 255, 0.45)';
           c.font = '10px monospace';
           c.textAlign = 'center';
           c.fillText(
-            'WASD / ARROWS: DRIVE · SPACE / X: DRIFT · SHIFT / B: NITRO · R: NEW TRACK · E: VIEW PROJECT',
+            'JOYSTICK / WASD: DRIVE & STEER · SPACE: DRIFT · SHIFT: NITRO · R: NEW TRACK · E: VIEW PROJECT',
             W / 2,
             H - 14
           );
         }
       }
 
-      // --- 4. Responsive In-Game Canvas Project Menu ---
+      // 4. In-Game Project Modal
       if (mode === 'menu') {
         const { menuX, menuY, menuW, menuH, isMobile, isLandscape, current, btns } = getMenuLayout();
 
@@ -1959,7 +1928,6 @@ const drive = (
         c.lineWidth = 2;
         c.strokeRect(menuX, menuY, menuW, menuH);
 
-        // Header bar
         c.fillStyle = '#1c1917';
         c.fillRect(menuX + 2, menuY + 2, menuW - 4, 28);
         c.fillStyle = '#e0a030';
@@ -2102,7 +2070,7 @@ const drive = (
   };
 };
 
-const GAMES: Record<string, (k: Keys, ctx: Ctx, getDims: () => { W: number; H: number; touch: boolean }) => Game> = {
+const GAMES: Record<string, (k: Keys, ctx: Ctx, getDims: () => Dims) => Game> = {
   snake,
   pong,
   breakout,
@@ -2118,7 +2086,7 @@ const Btn: React.FC<{ code: string; hold?: boolean; children: React.ReactNode; c
   className,
 }) => (
   <button
-    className={`rounded-full border-2 border-amber-400/60 bg-black/60 backdrop-blur-md text-amber-300 touch-none select-none active:bg-amber-400/40 active:scale-95 transition-all shadow-[0_0_14px_rgba(245,158,11,0.3)] flex items-center justify-center font-bold text-sm cursor-pointer ${
+    className={`rounded-2xl border-2 border-amber-400/60 bg-black/70 backdrop-blur-md text-amber-300 touch-none select-none active:bg-amber-400/40 active:scale-95 transition-all shadow-[0_0_14px_rgba(245,158,11,0.3)] flex items-center justify-center font-bold cursor-pointer ${
       className || 'w-14 h-14'
     }`}
     onPointerDown={(e) => {
@@ -2143,6 +2111,87 @@ const Btn: React.FC<{ code: string; hold?: boolean; children: React.ReactNode; c
   </button>
 );
 
+// ============================================================================
+// VIRTUAL JOYSTICK (High-Precision Analog Touch Controller)
+// ============================================================================
+const Joystick: React.FC<{
+  onMove: (x: number, y: number) => void;
+  onEnd: () => void;
+  className?: string;
+}> = ({ onMove, onEnd, className }) => {
+  const baseRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
+  const pointerIdRef = useRef<number | null>(null);
+
+  const updateKnob = (clientX: number, clientY: number) => {
+    if (!baseRef.current || !knobRef.current) return;
+    const rect = baseRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    let dx = clientX - centerX;
+    let dy = clientY - centerY;
+    const dist = Math.hypot(dx, dy);
+    const maxR = rect.width * 0.38;
+
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+
+    knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+    onMove(dx / maxR, dy / maxR);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pointerIdRef.current = e.pointerId;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updateKnob(e.clientX, e.clientY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== e.pointerId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    updateKnob(e.clientX, e.clientY);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== e.pointerId) return;
+    pointerIdRef.current = null;
+    if (knobRef.current) knobRef.current.style.transform = 'translate(0px, 0px)';
+    onEnd();
+  };
+
+  return (
+    <div
+      ref={baseRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      className={`relative rounded-full border-2 border-amber-400/60 bg-black/75 backdrop-blur-md touch-none select-none shadow-[0_0_24px_rgba(245,158,11,0.35)] flex items-center justify-center cursor-pointer pointer-events-auto ${
+        className || 'w-32 h-32 sm:w-36 sm:h-36'
+      }`}
+    >
+      {/* Decorative Cardinal & Reticle Indicators */}
+      <div className="absolute inset-0 rounded-full border border-amber-400/20 m-2.5 pointer-events-none" />
+      <div className="absolute w-full h-[1px] bg-amber-400/25 pointer-events-none" />
+      <div className="absolute h-full w-[1px] bg-amber-400/25 pointer-events-none" />
+
+      {/* Tactile Analog Knob */}
+      <div
+        ref={knobRef}
+        className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-amber-300 bg-gradient-to-br from-amber-400 to-amber-600 shadow-[0_0_18px_rgba(245,158,11,0.7)] flex items-center justify-center pointer-events-none"
+      >
+        <div className="w-5 h-5 rounded-full bg-amber-100/90 shadow-inner" />
+      </div>
+    </div>
+  );
+};
+
 const Arcade: React.FC<{
   game: string;
   projects: Project[];
@@ -2153,13 +2202,24 @@ const Arcade: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLCanvasElement>(null);
   const hud = useRef<HTMLDivElement>(null);
-  const touch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+  const joyRef = useRef({ x: 0, y: 0 });
+
+  const [showControls, setShowControls] = useState(false);
   const gameInstanceRef = useRef<Game | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isMenuOpenRef = useRef(false);
   const [nearProjectTitle, setNearProjectTitle] = useState<string | null>(null);
   const nearProjectRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const isTouch =
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(pointer: coarse)').matches ||
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0);
+    setShowControls(isTouch);
+  }, []);
 
   useEffect(() => {
     const enterFullscreen = async () => {
@@ -2218,10 +2278,11 @@ const Arcade: React.FC<{
     const c = canvas.getContext('2d')!;
     const ctx: Ctx = { projects, open: onOpen || (() => {}) };
 
-    const getDims = () => ({
+    const getDims = (): Dims => ({
       W: canvas.width || window.innerWidth || 800,
       H: canvas.height || window.innerHeight || 600,
-      touch: Boolean(touch),
+      touch: Boolean(showControls),
+      joy: joyRef.current,
     });
 
     const resizeCanvas = () => {
@@ -2235,7 +2296,6 @@ const Arcade: React.FC<{
     gameInstanceRef.current = g;
 
     const onKey = (e: KeyboardEvent) => {
-      // Allow browser developer keys through
       if (e.code === 'F12' || e.code === 'F11' || e.code === 'F5') return;
 
       if (e.type === 'keydown' && g.onKeyDown && g.onKeyDown(e.code)) {
@@ -2246,7 +2306,6 @@ const Arcade: React.FC<{
       if (isPaused) return;
       if (e.type === 'keydown' && (e.code === 'Escape' || e.code === 'KeyQ')) return handleExitGame();
 
-      // Only prevent default on game-related keys to avoid blocking normal interactions
       if (
         [
           'ArrowUp',
@@ -2295,7 +2354,6 @@ const Arcade: React.FC<{
           g.step(dt);
         }
 
-        // Bridge state for mobile UI
         if (g.isMenuOpen) {
           const open = g.isMenuOpen();
           if (open !== isMenuOpenRef.current) {
@@ -2335,7 +2393,7 @@ const Arcade: React.FC<{
 
           neon(c, '#ffffff', 0);
           c.font = '15px monospace';
-          c.fillText(touch ? 'TAP TO RESTART' : 'PRESS SPACE TO RESTART', canvas.width / 2, canvas.height / 2 + 54);
+          c.fillText(showControls ? 'TAP TO RESTART' : 'PRESS SPACE TO RESTART', canvas.width / 2, canvas.height / 2 + 54);
         }
         if (hud.current) hud.current.textContent = g.score();
       } catch (err) {
@@ -2351,7 +2409,7 @@ const Arcade: React.FC<{
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
     };
-  }, [game, projects, isPaused, onOpen, touch]);
+  }, [game, projects, isPaused, onOpen, showControls]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = ref.current;
@@ -2360,7 +2418,6 @@ const Arcade: React.FC<{
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // If game is over, restart on click/tap
     if (gameInstanceRef.current?.over()) {
       gameInstanceRef.current.act?.();
       return;
@@ -2379,6 +2436,40 @@ const Arcade: React.FC<{
     }
   };
 
+  const handleJoyMove = (x: number, y: number) => {
+    joyRef.current = { x, y };
+
+    if (x < -0.3) {
+      press('ArrowLeft', true);
+      press('ArrowRight', false);
+    } else if (x > 0.3) {
+      press('ArrowRight', true);
+      press('ArrowLeft', false);
+    } else {
+      press('ArrowLeft', false);
+      press('ArrowRight', false);
+    }
+
+    if (y < -0.3) {
+      press('ArrowUp', true);
+      press('ArrowDown', false);
+    } else if (y > 0.3) {
+      press('ArrowDown', true);
+      press('ArrowUp', false);
+    } else {
+      press('ArrowUp', false);
+      press('ArrowDown', false);
+    }
+  };
+
+  const handleJoyEnd = () => {
+    joyRef.current = { x: 0, y: 0 };
+    press('ArrowLeft', false);
+    press('ArrowRight', false);
+    press('ArrowUp', false);
+    press('ArrowDown', false);
+  };
+
   const displayGameTitle = game === 'drive' ? 'CYBER DRIFT' : game.toUpperCase();
 
   return (
@@ -2386,7 +2477,7 @@ const Arcade: React.FC<{
       ref={containerRef}
       className="fixed inset-0 z-50 w-screen h-screen bg-black overflow-hidden font-mono text-amber-300 select-none"
     >
-      {/* 100% Fullscreen Edge-to-Edge Canvas */}
+      {/* Edge-to-Edge Canvas */}
       <canvas
         ref={ref}
         onClick={handleCanvasClick}
@@ -2396,7 +2487,7 @@ const Arcade: React.FC<{
       {/* CRT Scanline Overlay */}
       <div className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.18)_0_2px,transparent_2px_4px)]" />
 
-      {/* Floating Minimal Header (Responsive on Mobile) */}
+      {/* Floating Header */}
       <div className="absolute top-2.5 sm:top-3 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between pointer-events-none">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 pr-2">
           <span className="uppercase tracking-[0.2em] sm:tracking-[0.35em] text-xs sm:text-base font-bold text-amber-300 drop-shadow truncate">
@@ -2417,6 +2508,19 @@ const Arcade: React.FC<{
               <span className="sm:hidden">Track</span>
             </button>
           )}
+
+          <button
+            onClick={() => setShowControls((v) => !v)}
+            className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs rounded border transition cursor-pointer backdrop-blur shadow ${
+              showControls
+                ? 'bg-amber-500/20 text-amber-300 border-amber-400'
+                : 'bg-zinc-950/80 hover:bg-zinc-800 text-zinc-400 border-zinc-700'
+            }`}
+            title="Toggle On-Screen Joystick Controls"
+          >
+            <Gamepad2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Controls</span>
+          </button>
 
           <button
             onClick={toggleFullscreen}
@@ -2451,72 +2555,68 @@ const Arcade: React.FC<{
         </div>
       )}
 
-      {/* Mobile Touch Controls */}
-      {touch && (
-        <div className="absolute inset-0 pointer-events-none z-30 select-none">
+      {/* On-Screen Joystick Controls */}
+      {showControls && (
+        <div
+          className={`absolute inset-0 pointer-events-none z-30 select-none transition-opacity duration-200 ${
+            isMenuOpen ? 'opacity-0' : 'opacity-100'
+          }`}
+        >
+          {/* Left Side: Virtual Analog Joystick */}
+          <div className="absolute left-4 sm:left-8 bottom-6 pointer-events-auto">
+            <Joystick onMove={handleJoyMove} onEnd={handleJoyEnd} />
+          </div>
+
+          {/* Right Side Action Buttons */}
           {game === 'drive' ? (
-            <div
-              className={`transition-opacity duration-200 ${
-                isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
-              }`}
-            >
-              {/* Left Side: Steering ◀ ▶ */}
-              <div className="absolute left-4 bottom-6 pointer-events-auto flex items-center gap-3">
-                <Btn code="ArrowLeft" hold className="w-14 h-14 text-lg">
-                  ◀
+            /* Cyber Drift Action Controls (No arrows!) */
+            <div className="absolute right-4 sm:right-6 bottom-6 pointer-events-auto flex items-end gap-2.5">
+              <div className="flex flex-col gap-2">
+                <Btn
+                  code="ArrowUp"
+                  hold
+                  className="w-14 h-14 rounded-2xl border-2 border-emerald-400/70 bg-emerald-950/70 text-emerald-300 font-bold text-xs tracking-wider shadow-[0_0_16px_rgba(16,185,129,0.4)] active:bg-emerald-400/40"
+                >
+                  GAS
                 </Btn>
-                <Btn code="ArrowRight" hold className="w-14 h-14 text-lg">
-                  ▶
+                <Btn
+                  code="ArrowDown"
+                  hold
+                  className="w-14 h-12 rounded-2xl border-2 border-red-400/70 bg-red-950/70 text-red-300 font-bold text-xs tracking-wider shadow-[0_0_14px_rgba(239,68,68,0.4)] active:bg-red-400/40"
+                >
+                  BRAKE
                 </Btn>
               </div>
-
-              {/* Right Side: Reverse ▼, Gas ▲, DRIFT ⚡ and NITRO 🚀 */}
-              <div className="absolute right-4 bottom-6 pointer-events-auto flex items-center gap-2">
-                <Btn code="ArrowDown" hold className="w-12 h-12 text-sm">
-                  ▼
-                </Btn>
-                <Btn code="ArrowUp" hold className="w-14 h-14 text-lg">
-                  ▲
+              <div className="flex flex-col gap-2">
+                <Btn
+                  code="ShiftLeft"
+                  hold
+                  className="px-3.5 h-14 rounded-2xl border-2 border-cyan-400 bg-cyan-950/70 text-cyan-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(6,182,212,0.5)] active:bg-cyan-400/40 flex items-center justify-center gap-1"
+                >
+                  🚀 NITRO
                 </Btn>
                 <Btn
                   code="Space"
                   hold
-                  className="px-3.5 h-12 rounded-full border-2 border-pink-400 bg-pink-950/70 text-pink-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(244,114,182,0.4)] active:bg-pink-400/40"
+                  className="px-3.5 h-12 rounded-2xl border-2 border-pink-400 bg-pink-950/70 text-pink-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(244,114,182,0.5)] active:bg-pink-400/40 flex items-center justify-center gap-1"
                 >
                   ⚡ DRIFT
-                </Btn>
-                <Btn
-                  code="ShiftLeft"
-                  hold
-                  className="px-3.5 h-12 rounded-full border-2 border-cyan-400 bg-cyan-950/70 text-cyan-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(6,182,212,0.4)] active:bg-cyan-400/40"
-                >
-                  🚀 NITRO
                 </Btn>
               </div>
             </div>
           ) : (
-            /* Classic 4-Way D-Pad & Actions for Snake, Pong, Breakout */
-            <>
-              <div className="absolute left-4 bottom-6 pointer-events-auto">
-                <div className="grid grid-cols-3 gap-1.5 place-items-center">
-                  <span />
-                  <Btn code="ArrowUp" hold>▲</Btn>
-                  <span />
-                  <Btn code="ArrowLeft" hold>◀</Btn>
-                  <span />
-                  <Btn code="ArrowRight" hold>▶</Btn>
-                  <span />
-                  <Btn code="ArrowDown" hold>▼</Btn>
-                  <span />
-                </div>
-              </div>
-
-              <div className="absolute right-4 bottom-6 pointer-events-auto flex flex-col gap-2.5">
-                <Btn code="KeyE">Act</Btn>
-                <Btn code="Space">Retry</Btn>
-                <Btn code="Escape">Exit</Btn>
-              </div>
-            </>
+            /* Retro Mini-Games Action Controls (No arrows!) */
+            <div className="absolute right-4 sm:right-8 bottom-6 pointer-events-auto flex flex-col gap-2.5">
+              <Btn code="KeyE" className="w-16 h-13 text-xs tracking-wider font-bold">
+                ACT
+              </Btn>
+              <Btn code="Space" className="w-16 h-13 text-xs tracking-wider font-bold">
+                RETRY
+              </Btn>
+              <Btn code="Escape" className="w-16 h-13 text-xs tracking-wider font-bold">
+                EXIT
+              </Btn>
+            </div>
           )}
         </div>
       )}
