@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Project } from '@/types/Project';
 import { getProjectImageUrl } from '@/lib/projectUtils';
 import stationAudio from '@/lib/stationAudio';
-import { Maximize, Minimize } from 'lucide-react';
+import { Maximize, Minimize, RefreshCw } from 'lucide-react';
 
 type Ctx = { projects: Project[]; open: (p: Project) => void };
 type Game = {
@@ -15,6 +15,7 @@ type Game = {
   over: () => boolean;
   isMenuOpen?: () => boolean;
   getNearProject?: () => string | null;
+  getGameOverText?: () => { title: string; subtitle: string };
 };
 type Keys = Set<string>;
 
@@ -22,7 +23,8 @@ const up = (k: Keys) => k.has('ArrowUp') || k.has('KeyW');
 const down = (k: Keys) => k.has('ArrowDown') || k.has('KeyS');
 const left = (k: Keys) => k.has('ArrowLeft') || k.has('KeyA');
 const right = (k: Keys) => k.has('ArrowRight') || k.has('KeyD');
-const driftKey = (k: Keys) => k.has('Space') || k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyX');
+const driftKey = (k: Keys) => k.has('Space') || k.has('KeyX');
+const boostKey = (k: Keys) => k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyB');
 
 const neon = (c: CanvasRenderingContext2D, color: string, blur = 12) => {
   c.fillStyle = color;
@@ -80,36 +82,65 @@ function wrapCanvasText(
 }
 
 // ============================================================================
-// GAME 1: SNAKE (Dynamic Fullscreen & Mobile Safe Area)
+// GAME 1: SNAKE (Bug-Fixed: Direction Buffering, Food Placement & Mobile Restart)
 // ============================================================================
 const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch: boolean }): Game => {
   const C = 24;
   let s = [{ x: 8, y: 8 }];
   let d = { x: 1, y: 0 };
+  let lastD = { x: 1, y: 0 };
+  let nextD: { x: number; y: number } | null = null;
   let f = { x: 4, y: 4 };
   let t = 0;
   let dead = false;
   let score = 0;
 
+  const spawnFood = (cols: number, rows: number) => {
+    const occupied = new Set(s.map((p) => `${p.x},${p.y}`));
+    const free: { x: number; y: number }[] = [];
+    for (let x = 0; x < cols; x++) {
+      for (let y = 0; y < rows; y++) {
+        if (!occupied.has(`${x},${y}`)) free.push({ x, y });
+      }
+    }
+    if (free.length > 0) {
+      f = free[Math.floor(Math.random() * free.length)];
+    } else {
+      f = { x: Math.floor(Math.random() * cols), y: Math.floor(Math.random() * rows) };
+    }
+  };
+
+  const setDir = (nx: number, ny: number) => {
+    // Prevent 180° instant turn into self based on last moved direction
+    if (nx === -lastD.x && ny === -lastD.y) return;
+    nextD = { x: nx, y: ny };
+  };
+
+  const restart = () => {
+    s = [{ x: 8, y: 8 }];
+    d = { x: 1, y: 0 };
+    lastD = { x: 1, y: 0 };
+    nextD = null;
+    dead = false;
+    score = 0;
+    const { W, H, touch } = getDims();
+    const bottomSafe = touch ? 140 : 20;
+    spawnFood(Math.max(8, Math.floor(W / C)), Math.max(8, Math.floor((H - bottomSafe) / C)));
+  };
+
   return {
     score: () => String(score),
     over: () => dead,
+    getGameOverText: () => ({
+      title: 'GAME OVER',
+      subtitle: `FINAL SCORE: ${score}`,
+    }),
     act: () => {
-      if (dead) {
-        s = [{ x: 8, y: 8 }];
-        d = { x: 1, y: 0 };
-        f = { x: 4, y: 4 };
-        dead = false;
-        score = 0;
-      }
+      if (dead) restart();
     },
     onClick: (cx, cy) => {
       if (dead) {
-        s = [{ x: 8, y: 8 }];
-        d = { x: 1, y: 0 };
-        f = { x: 4, y: 4 };
-        dead = false;
-        score = 0;
+        restart();
         return;
       }
       const hx = s[0].x * C + C / 2;
@@ -117,11 +148,11 @@ const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch:
       const dx = cx - hx;
       const dy = cy - hy;
       if (Math.abs(dx) > Math.abs(dy)) {
-        if (dx > 0 && d.x !== -1) d = { x: 1, y: 0 };
-        else if (dx < 0 && d.x !== 1) d = { x: -1, y: 0 };
+        if (dx > 0) setDir(1, 0);
+        else if (dx < 0) setDir(-1, 0);
       } else {
-        if (dy > 0 && d.y !== -1) d = { x: 0, y: 1 };
-        else if (dy < 0 && d.y !== 1) d = { x: 0, y: -1 };
+        if (dy > 0) setDir(0, 1);
+        else if (dy < 0) setDir(0, -1);
       }
     },
     step(dt) {
@@ -130,96 +161,144 @@ const snake = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch:
       const cols = Math.max(8, Math.floor(W / C));
       const rows = Math.max(8, Math.floor((H - bottomSafe) / C));
 
-      if (up(k) && d.y !== 1) d = { x: 0, y: -1 };
-      else if (down(k) && d.y !== -1) d = { x: 0, y: 1 };
-      else if (left(k) && d.x !== 1) d = { x: -1, y: 0 };
-      else if (right(k) && d.x !== -1) d = { x: 1, y: 0 };
+      if (up(k)) setDir(0, -1);
+      else if (down(k)) setDir(0, 1);
+      else if (left(k)) setDir(-1, 0);
+      else if (right(k)) setDir(1, 0);
 
       t += dt;
       if (t < 0.08 || dead) return;
       t = 0;
 
+      if (nextD) {
+        d = nextD;
+        nextD = null;
+      }
+      lastD = d;
+
       const h = { x: s[0].x + d.x, y: s[0].y + d.y };
       if (h.x < 0 || h.y < 0 || h.x >= cols || h.y >= rows || s.some((p) => p.x === h.x && p.y === h.y)) {
-        dead = true;
+        if (!dead) {
+          dead = true;
+          stationAudio.playCarBump();
+        }
         return;
       }
+
       s.unshift(h);
       if (h.x === f.x && h.y === f.y) {
         score++;
         stationAudio.playCoinPickup();
-        f = { x: Math.floor(Math.random() * cols), y: Math.floor(Math.random() * rows) };
-      } else s.pop();
+        spawnFood(cols, rows);
+      } else {
+        s.pop();
+      }
     },
     draw(c) {
-      neon(c, '#f43f5e');
+      neon(c, '#f43f5e', 14);
       c.fillRect(f.x * C + 3, f.y * C + 3, C - 6, C - 6);
-      neon(c, '#34d399');
-      s.forEach((p) => c.fillRect(p.x * C + 1, p.y * C + 1, C - 2, C - 2));
+      neon(c, '#34d399', 10);
+      s.forEach((p, idx) => {
+        if (idx === 0) {
+          c.fillStyle = '#6ee7b7';
+        } else {
+          c.fillStyle = '#10b981';
+        }
+        c.fillRect(p.x * C + 1, p.y * C + 1, C - 2, C - 2);
+      });
     },
   };
 };
 
 // ============================================================================
-// GAME 2: PONG (Touch Drag & Fullscreen)
+// GAME 2: PONG (Bug-Fixed: Tunneling Prevention, Ball Radius & Touch Restart)
 // ============================================================================
 const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game => {
   let py = 200;
   let ay = 200;
   let sc = [0, 0];
-  let b = { x: 300, y: 200, vx: 340, vy: 160 };
+  let b = { x: 300, y: 200, vx: 360, vy: 160 };
+  const BALL_R = 7;
 
   const serve = (dir: number) => {
     const { W, H } = getDims();
-    b = { x: W / 2, y: H / 2, vx: 340 * dir, vy: (Math.random() - 0.5) * 320 };
+    b = { x: W / 2, y: H / 2, vx: 360 * dir, vy: (Math.random() - 0.5) * 320 };
+  };
+
+  const isOver = () => sc[0] >= 7 || sc[1] >= 7;
+  const restart = () => {
+    sc = [0, 0];
+    serve(1);
   };
 
   return {
     score: () => `${sc[0]} - ${sc[1]}`,
-    over: () => sc[0] >= 7 || sc[1] >= 7,
+    over: isOver,
+    getGameOverText: () => ({
+      title: sc[0] >= 7 ? 'VICTORY!' : 'AI WINS!',
+      subtitle: `${sc[0]} - ${sc[1]}`,
+    }),
     act: () => {
-      if (sc[0] >= 7 || sc[1] >= 7) {
-        sc = [0, 0];
-        serve(1);
-      }
+      if (isOver()) restart();
     },
     onClick: (_cx, cy) => {
+      if (isOver()) {
+        restart();
+        return;
+      }
       const { H } = getDims();
       const P = Math.max(70, Math.min(130, H * 0.22));
       py = Math.max(0, Math.min(H - P, cy - P / 2));
     },
     step(dt) {
-      if (this.over()) return;
+      if (isOver()) return;
       const { W, H } = getDims();
       const P = Math.max(70, Math.min(130, H * 0.22));
 
-      py = Math.max(0, Math.min(H - P, py + ((down(k) ? 1 : 0) - (up(k) ? 1 : 0)) * 460 * dt));
-      ay = Math.max(0, Math.min(H - P, ay + Math.sign(b.y - P / 2 - ay) * Math.min(300 * dt, Math.abs(b.y - P / 2 - ay))));
+      py = Math.max(0, Math.min(H - P, py + ((down(k) ? 1 : 0) - (up(k) ? 1 : 0)) * 500 * dt));
+      ay = Math.max(0, Math.min(H - P, ay + Math.sign(b.y - P / 2 - ay) * Math.min(340 * dt, Math.abs(b.y - P / 2 - ay))));
 
-      b.x += b.vx * dt;
+      const prevX = b.x;
+      const nextX = b.x + b.vx * dt;
+      b.x = nextX;
       b.y += b.vy * dt;
 
-      if (b.y < 8 || b.y > H - 8) b.vy *= -1;
-
-      // Left paddle
-      if (b.vx < 0 && b.x < 36 && b.x > 14 && b.y > py && b.y < py + P) {
-        b.vx = Math.abs(b.vx) * 1.05;
-        b.vy = (b.y - (py + P / 2)) * 8;
-        stationAudio.playDriftScreech(0.4);
+      // Top and bottom bounds
+      if (b.y < BALL_R) {
+        b.y = BALL_R;
+        b.vy = Math.abs(b.vy);
+      } else if (b.y > H - BALL_R) {
+        b.y = H - BALL_R;
+        b.vy = -Math.abs(b.vy);
       }
-      // Right paddle
-      if (b.vx > 0 && b.x > W - 36 && b.x < W - 14 && b.y > ay && b.y < ay + P) {
-        b.vx = -Math.abs(b.vx) * 1.05;
-        b.vy = (b.y - (ay + P / 2)) * 8;
-        stationAudio.playDriftScreech(0.4);
+
+      // Left Player Paddle Collision (Paddle at x=20, width=10 -> edge at 30)
+      const pEdge = 30;
+      if (b.vx < 0 && prevX - BALL_R >= pEdge && b.x - BALL_R <= pEdge) {
+        if (b.y + BALL_R >= py && b.y - BALL_R <= py + P) {
+          b.x = pEdge + BALL_R;
+          b.vx = Math.min(750, Math.abs(b.vx) * 1.06);
+          b.vy = ((b.y - (py + P / 2)) / (P / 2)) * 320;
+          stationAudio.playDriftScreech(0.4);
+        }
+      }
+
+      // Right AI Paddle Collision (Paddle at x=W-30, width=10 -> edge at W-30)
+      const aiEdge = W - 30;
+      if (b.vx > 0 && prevX + BALL_R <= aiEdge && b.x + BALL_R >= aiEdge) {
+        if (b.y + BALL_R >= ay && b.y - BALL_R <= ay + P) {
+          b.x = aiEdge - BALL_R;
+          b.vx = -Math.min(750, Math.abs(b.vx) * 1.06);
+          b.vy = ((b.y - (ay + P / 2)) / (P / 2)) * 320;
+          stationAudio.playDriftScreech(0.4);
+        }
       }
 
       if (b.x < 0) {
         sc[1]++;
         stationAudio.playCarBump();
         serve(1);
-      }
-      if (b.x > W) {
+      } else if (b.x > W) {
         sc[0]++;
         stationAudio.playCoinPickup();
         serve(-1);
@@ -239,25 +318,26 @@ const pong = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number }): Game
       c.stroke();
       c.setLineDash([]);
 
-      neon(c, '#22d3ee');
+      neon(c, '#22d3ee', 12);
       c.fillRect(20, py, 10, P);
-      neon(c, '#f472b6');
+      neon(c, '#f472b6', 12);
       c.fillRect(W - 30, ay, 10, P);
-      neon(c, '#fff');
-      c.fillRect(b.x - 7, b.y - 7, 14, 14);
+      neon(c, '#ffffff', 10);
+      c.fillRect(b.x - BALL_R, b.y - BALL_R, BALL_R * 2, BALL_R * 2);
     },
   };
 };
 
 // ============================================================================
-// GAME 3: BREAKOUT (Touch Drag & Mobile Safe Area)
+// GAME 3: BREAKOUT (Bug-Fixed: Accurate AABB Physics, Win Detection & Mobile Restart)
 // ============================================================================
 const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; touch: boolean }): Game => {
   let init = false;
   let px = 300;
-  let b = { x: 300, y: 400, vx: 240, vy: -300 };
+  let b = { x: 300, y: 400, vx: 260, vy: -320 };
   let lives = 3;
   let bricks: { x: number; y: number; w: number; h: number; alive: boolean; col: string }[] = [];
+  const BALL_R = 6;
   const cols = ['#f43f5e', '#fb923c', '#facc15', '#34d399', '#22d3ee', '#a78bfa'];
 
   const setupBricks = (W: number) => {
@@ -279,20 +359,33 @@ const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; tou
     bricks = list;
   };
 
+  const isWon = () => bricks.length > 0 && bricks.every((x) => !x.alive);
+  const isOver = () => lives <= 0 || isWon();
+
+  const restart = () => {
+    const { W, H, touch } = getDims();
+    const bottomMargin = touch ? 140 : 26;
+    setupBricks(W);
+    px = W / 2 - 50;
+    b = { x: W / 2, y: H - (bottomMargin + 60), vx: 260, vy: -320 };
+    lives = 3;
+  };
+
   return {
     score: () => `${bricks.filter((x) => !x.alive).length}  ♥${lives}`,
-    over: () => lives <= 0 || (bricks.length > 0 && bricks.every((x) => !x.alive)),
+    over: isOver,
+    getGameOverText: () => ({
+      title: isWon() ? 'ALL BRICKS CLEARED!' : 'GAME OVER',
+      subtitle: isWon() ? 'EXCELLENT RUN!' : `BRICKS BROKEN: ${bricks.filter((x) => !x.alive).length}`,
+    }),
     act: () => {
-      if (lives <= 0 || (bricks.length > 0 && bricks.every((x) => !x.alive))) {
-        const { W, H, touch } = getDims();
-        const bottomMargin = touch ? 140 : 26;
-        setupBricks(W);
-        px = W / 2 - 50;
-        b = { x: W / 2, y: H - (bottomMargin + 60), vx: 240, vy: -300 };
-        lives = 3;
-      }
+      if (isOver()) restart();
     },
     onClick: (cx) => {
+      if (isOver()) {
+        restart();
+        return;
+      }
       const { W } = getDims();
       const PW = Math.max(80, Math.min(140, W * 0.16));
       px = Math.max(0, Math.min(W - PW, cx - PW / 2));
@@ -303,38 +396,73 @@ const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; tou
       if (!init) {
         setupBricks(W);
         px = W / 2 - 50;
-        b = { x: W / 2, y: H - (bottomMargin + 60), vx: 240, vy: -300 };
+        b = { x: W / 2, y: H - (bottomMargin + 60), vx: 260, vy: -320 };
         init = true;
       }
-      if (this.over()) return;
+      if (isOver()) return;
+
       const PW = Math.max(80, Math.min(140, W * 0.16));
-      px = Math.max(0, Math.min(W - PW, px + ((right(k) ? 1 : 0) - (left(k) ? 1 : 0)) * 550 * dt));
+      px = Math.max(0, Math.min(W - PW, px + ((right(k) ? 1 : 0) - (left(k) ? 1 : 0)) * 580 * dt));
 
       b.x += b.vx * dt;
       b.y += b.vy * dt;
 
-      if (b.x < 8 || b.x > W - 8) b.vx *= -1;
-      if (b.y < 8) b.vy = Math.abs(b.vy);
+      // Wall reflections
+      if (b.x < BALL_R) {
+        b.x = BALL_R;
+        b.vx = Math.abs(b.vx);
+      } else if (b.x > W - BALL_R) {
+        b.x = W - BALL_R;
+        b.vx = -Math.abs(b.vx);
+      }
+      if (b.y < BALL_R) {
+        b.y = BALL_R;
+        b.vy = Math.abs(b.vy);
+      }
 
-      // Paddle collision at safe bottom position
+      // Paddle collision
       const padY = H - bottomMargin;
-      if (b.vy > 0 && b.y > padY - 14 && b.y < padY + 6 && b.x > px && b.x < px + PW) {
+      if (
+        b.vy > 0 &&
+        b.y + BALL_R >= padY &&
+        b.y - BALL_R <= padY + 10 &&
+        b.x + BALL_R >= px &&
+        b.x - BALL_R <= px + PW
+      ) {
+        b.y = padY - BALL_R;
         b.vy = -Math.abs(b.vy);
-        b.vx = (b.x - (px + PW / 2)) * 7.5;
+        const hitOffset = (b.x - (px + PW / 2)) / (PW / 2);
+        b.vx = hitOffset * 340;
         stationAudio.playDriftScreech(0.3);
       }
 
+      // Ball loss
       if (b.y > H - (bottomMargin - 30)) {
         lives--;
         stationAudio.playCarBump();
-        b = { x: W / 2, y: H - (bottomMargin + 60), vx: 240, vy: -300 };
+        b = { x: W / 2, y: H - (bottomMargin + 60), vx: 260, vy: -320 };
       }
 
-      const hit = bricks.find((r) => r.alive && b.x > r.x && b.x < r.x + r.w && b.y > r.y && b.y < r.y + r.h);
-      if (hit) {
-        hit.alive = false;
-        b.vy *= -1;
-        stationAudio.playCoinPickup();
+      // Brick AABB collision
+      for (const r of bricks) {
+        if (!r.alive) continue;
+        if (
+          b.x + BALL_R >= r.x &&
+          b.x - BALL_R <= r.x + r.w &&
+          b.y + BALL_R >= r.y &&
+          b.y - BALL_R <= r.y + r.h
+        ) {
+          r.alive = false;
+          stationAudio.playCoinPickup();
+
+          const prevX = b.x - b.vx * dt;
+          if (prevX + BALL_R < r.x || prevX - BALL_R > r.x + r.w) {
+            b.vx *= -1;
+          } else {
+            b.vy *= -1;
+          }
+          break;
+        }
       }
     },
     draw(c) {
@@ -348,36 +476,241 @@ const breakout = (k: Keys, _ctx: Ctx, getDims: () => { W: number; H: number; tou
         c.fillRect(r.x, r.y, r.w, r.h);
       });
 
-      neon(c, '#22d3ee');
+      neon(c, '#22d3ee', 10);
       c.fillRect(px, H - bottomMargin, PW, 10);
-      neon(c, '#fff');
-      c.fillRect(b.x - 6, b.y - 6, 12, 12);
+      neon(c, '#ffffff', 8);
+      c.fillRect(b.x - BALL_R, b.y - BALL_R, BALL_R * 2, BALL_R * 2);
     },
   };
 };
 
 // ============================================================================
-// GAME 4: CYBER DRIFT (Better Car, Drifting, Nitro, Randomness & Mobile-Safe UI)
+// GAME 4: CYBER DRIFT (Procedural Dynamic Road Networks & Rich Racing World)
 // ============================================================================
-const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number; touch: boolean }): Game => {
-  const GAP = 360;
-  const cols = Math.max(1, Math.ceil(Math.sqrt(projects.length)));
-  const rows = Math.max(1, Math.ceil(projects.length / cols));
-  const WW = (cols + 1) * GAP;
-  const WH = (rows + 1) * GAP;
 
-  const spots = projects.map((p, i) => ({
-    p,
-    x: ((i % cols) + 1) * GAP + 75,
-    y: (Math.floor(i / cols) + 1) * GAP + 75,
-  }));
+interface TrackPoint {
+  x: number;
+  y: number;
+  nx: number;
+  ny: number;
+  tx: number;
+  ty: number;
+  angle: number;
+  isApex: boolean;
+  isDriftZone: boolean;
+  isBoostPad: boolean;
+}
+
+interface ProjectSpot {
+  p: Project;
+  x: number;
+  y: number;
+  roadIdx: number;
+  nx: number;
+  ny: number;
+}
+
+type TrackArchetype = 'circuit' | 'touge' | 'metropolis' | 'arena';
+
+const ARCHETYPE_NAMES: Record<TrackArchetype, string> = {
+  circuit: 'GRAND PRIX CIRCUIT',
+  touge: 'NEON TOUGE PASS',
+  metropolis: 'CYBER CITY RING',
+  arena: 'OMEGA DRIFT ARENA',
+};
+
+// Procedural Track Generator
+function generateProceduralTrack(archetype: TrackArchetype, projects: Project[]) {
+  const WW = 2800;
+  const WH = 2400;
+  const cx = WW / 2;
+  const cy = WH / 2;
+  let controlPoints: { x: number; y: number }[] = [];
+
+  if (archetype === 'circuit') {
+    // Grand Prix Circuit with chicanes, sweeping bends and long straights
+    const rx = 1050;
+    const ry = 850;
+    const N = 14;
+    for (let i = 0; i < N; i++) {
+      const theta = (i * Math.PI * 2) / N;
+      let rOffset = (Math.sin(theta * 3) + Math.cos(theta * 2)) * 140;
+      if (i === 3 || i === 4) rOffset -= 220; // chicane bend
+      if (i === 8) rOffset += 240; // wide carousel
+      if (i === 11) rOffset -= 180; // hairpin entry
+      const rX = rx + rOffset * 0.9;
+      const rY = ry + rOffset * 0.9;
+      controlPoints.push({
+        x: cx + Math.cos(theta) * rX + (Math.random() - 0.5) * 60,
+        y: cy + Math.sin(theta) * rY + (Math.random() - 0.5) * 60,
+      });
+    }
+  } else if (archetype === 'touge') {
+    // Akina Mountain Touge: Consecutive S-turns and sharp 180-degree hairpins
+    controlPoints = [
+      { x: cx - 950, y: cy - 750 },
+      { x: cx - 400, y: cy - 800 },
+      { x: cx + 500, y: cy - 750 },
+      { x: cx + 900, y: cy - 500 },
+      { x: cx + 600, y: cy - 250 }, // Hairpin 1
+      { x: cx - 200, y: cy - 300 },
+      { x: cx - 750, y: cy - 50 },  // Hairpin 2
+      { x: cx - 100, y: cy + 100 },
+      { x: cx + 700, y: cy + 50 },  // Hairpin 3
+      { x: cx + 950, y: cy + 400 },
+      { x: cx + 450, y: cy + 700 }, // Hairpin 4
+      { x: cx - 500, y: cy + 750 },
+      { x: cx - 950, y: cy + 450 },
+      { x: cx - 850, y: cy - 200 },
+    ];
+  } else if (archetype === 'metropolis') {
+    // Cyber Metropolis Expressway with central roundabout and expressway loops
+    const R = 720;
+    controlPoints = [
+      { x: cx - R, y: cy - R },
+      { x: cx, y: cy - R - 150 },
+      { x: cx + R, y: cy - R },
+      { x: cx + R + 180, y: cy },
+      { x: cx + R, y: cy + R },
+      { x: cx + 180, y: cy + 300 }, // Roundabout entrance
+      { x: cx, y: cy },
+      { x: cx - 180, y: cy + 300 },
+      { x: cx - R, y: cy + R },
+      { x: cx - R - 180, y: cy },
+    ];
+  } else {
+    // Figure-8 Drift Arena
+    const R = 540;
+    controlPoints = [
+      { x: cx - R, y: cy - 420 },
+      { x: cx - R - 220, y: cy - 100 },
+      { x: cx - R, y: cy + 280 },
+      { x: cx - 180, y: cy + 180 },
+      { x: cx, y: cy },
+      { x: cx + 180, y: cy - 180 },
+      { x: cx + R, y: cy - 280 },
+      { x: cx + R + 220, y: cy + 100 },
+      { x: cx + R, y: cy + 420 },
+      { x: cx + 220, y: cy + 340 },
+      { x: cx, y: cy },
+      { x: cx - 220, y: cy - 340 },
+    ];
+  }
+
+  // Sample Catmull-Rom spline uniformly along the closed loop
+  const points: { x: number; y: number }[] = [];
+  const N = controlPoints.length;
+  for (let i = 0; i < N; i++) {
+    const p0 = controlPoints[(i - 1 + N) % N];
+    const p1 = controlPoints[i];
+    const p2 = controlPoints[(i + 1) % N];
+    const p3 = controlPoints[(i + 2) % N];
+
+    const steps = 45;
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const t2 = t * t;
+      const t3 = t2 * t;
+
+      const x =
+        0.5 *
+        (2 * p1.x +
+          (-p0.x + p2.x) * t +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+      const y =
+        0.5 *
+        (2 * p1.y +
+          (-p0.y + p2.y) * t +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+      points.push({ x, y });
+    }
+  }
+
+  // Precompute tangents, normals, curvature, and special zones
+  const trackPoints: TrackPoint[] = [];
+  const total = points.length;
+  for (let i = 0; i < total; i++) {
+    const prev = points[(i - 1 + total) % total];
+    const curr = points[i];
+    const next = points[(i + 1) % total];
+
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const tx = dx / len;
+    const ty = dy / len;
+    const nx = -ty;
+    const ny = tx;
+    const angle = Math.atan2(ty, tx);
+
+    // Approximate curvature
+    const prevAngle = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+    const nextAngle = Math.atan2(next.y - curr.y, next.x - curr.x);
+    let diff = Math.abs(nextAngle - prevAngle);
+    if (diff > Math.PI) diff = Math.PI * 2 - diff;
+
+    const isApex = diff > 0.045;
+    const isDriftZone = diff > 0.025;
+    const isBoostPad = !isApex && !isDriftZone && i % 85 === 0;
+
+    trackPoints.push({
+      x: curr.x,
+      y: curr.y,
+      nx,
+      ny,
+      tx,
+      ty,
+      angle,
+      isApex,
+      isDriftZone,
+      isBoostPad,
+    });
+  }
+
+  // Distribute projects along scenic turnouts along the track
+  const spots: ProjectSpot[] = [];
+  const numProjects = projects.length;
+  for (let idx = 0; idx < numProjects; idx++) {
+    const targetIdx = Math.floor((idx + 0.5) * (total / numProjects)) % total;
+    const tp = trackPoints[targetIdx];
+    // Offset showcase bay safely from the road
+    const bayDistance = 125;
+    const side = idx % 2 === 0 ? 1 : -1;
+    spots.push({
+      p: projects[idx],
+      x: tp.x + tp.nx * (bayDistance * side),
+      y: tp.y + tp.ny * (bayDistance * side),
+      roadIdx: targetIdx,
+      nx: tp.nx * side,
+      ny: tp.ny * side,
+    });
+  }
+
+  return { WW, WH, trackPoints, spots };
+}
+
+const drive = (
+  k: Keys,
+  { projects }: Ctx,
+  getDims: () => { W: number; H: number; touch: boolean }
+): Game => {
+  const archetypes: TrackArchetype[] = ['circuit', 'touge', 'metropolis', 'arena'];
+  let currentArchetypeIdx = Math.floor(Math.random() * archetypes.length);
+
+  let { WW, WH, trackPoints, spots } = generateProceduralTrack(
+    archetypes[currentArchetypeIdx],
+    projects
+  );
+
   const seen = new Set<string>();
 
   // --- 1. Enhanced Car Physics State ---
   const car = {
-    x: GAP / 2,
-    y: GAP / 2,
-    a: 0,
+    x: trackPoints[0]?.x || 400,
+    y: trackPoints[0]?.y || 400,
+    a: trackPoints[0]?.angle || 0,
     vx: 0,
     vy: 0,
     v: 0,
@@ -392,63 +725,144 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
     totalScore: 0,
   };
 
-  let near: (typeof spots)[number] | null = null;
+  let near: ProjectSpot | null = null;
   let mode: 'drive' | 'menu' = 'drive';
   let selectedProjectIdx = 0;
   let selectedButton = 0;
 
-  // --- 2. Randomness: Collectible Stars, Nitro Canisters & Mystery Crates ---
-  const stars: { id: number; x: number; y: number; collected: boolean; anim: number }[] = [];
-  for (let r = 1; r <= rows; r++) {
-    for (let c = 1; c <= cols; c++) {
+  // --- 2. Track Items: Stars, Nitro Canisters, Cones, NPCs ---
+  let stars: { id: number; x: number; y: number; collected: boolean; anim: number }[] = [];
+  let nitroPods: { id: number; x: number; y: number; collected: boolean; respawn: number }[] = [];
+  let cones: { x: number; y: number; vx: number; vy: number; rot: number; vrot: number }[] = [];
+  let npcCars: {
+    id: number;
+    trackIdx: number;
+    x: number;
+    y: number;
+    a: number;
+    v: number;
+    color: string;
+    nearMissed: boolean;
+  }[] = [];
+
+  const npcColors = ['#f59e0b', '#ec4899', '#10b981', '#8b5cf6', '#06b6d4'];
+
+  const initTrackItems = () => {
+    // Populate Stars along the racing line
+    stars = [];
+    const starInterval = Math.floor(trackPoints.length / 28);
+    for (let i = 0; i < trackPoints.length; i += starInterval) {
+      const tp = trackPoints[i];
       stars.push({
-        id: r * 100 + c,
-        x: c * GAP + (Math.random() - 0.5) * 160,
-        y: r * GAP + (Math.random() - 0.5) * 160,
+        id: i,
+        x: tp.x + tp.nx * (Math.sin(i) * 16),
+        y: tp.y + tp.ny * (Math.sin(i) * 16),
         collected: false,
         anim: Math.random() * Math.PI * 2,
       });
     }
-  }
 
-  const nitroPods: { id: number; x: number; y: number; collected: boolean; respawn: number }[] = [];
-  for (let i = 0; i < 6; i++) {
-    nitroPods.push({
-      id: i,
-      x: ((i % cols) + 0.5) * GAP + 50,
-      y: (Math.floor(i / cols) + 0.5) * GAP + 50,
-      collected: false,
-      respawn: 0,
+    // Populate Nitro canisters on corner exits
+    nitroPods = [];
+    for (let i = 0; i < trackPoints.length; i += Math.floor(trackPoints.length / 8)) {
+      const tp = trackPoints[i];
+      nitroPods.push({
+        id: i,
+        x: tp.x + tp.nx * 38,
+        y: tp.y + tp.ny * 38,
+        collected: false,
+        respawn: 0,
+      });
+    }
+
+    // Populate Cones on apexes and parking bay entries
+    cones = [];
+    trackPoints.forEach((tp, i) => {
+      if (tp.isApex && i % 18 === 0) {
+        cones.push({
+          x: tp.x + tp.nx * 44,
+          y: tp.y + tp.ny * 44,
+          vx: 0,
+          vy: 0,
+          rot: 0,
+          vrot: 0,
+        });
+      }
     });
-  }
+    spots.forEach((s) => {
+      cones.push({ x: s.x - 38, y: s.y + 40, vx: 0, vy: 0, rot: 0, vrot: 0 });
+      cones.push({ x: s.x + 38, y: s.y + 40, vx: 0, vy: 0, rot: 0, vrot: 0 });
+    });
 
-  // --- 3. Random Traffic Cones (Bouncy Physics Props) ---
-  const cones: { x: number; y: number; vx: number; vy: number; rot: number; vrot: number }[] = [];
-  spots.forEach((s) => {
-    // 3 cones around parking bay
-    cones.push({ x: s.x - 55, y: s.y + 40, vx: 0, vy: 0, rot: 0, vrot: 0 });
-    cones.push({ x: s.x + 55, y: s.y + 40, vx: 0, vy: 0, rot: 0, vrot: 0 });
-  });
+    // Populate NPC Racers along the track
+    npcCars = Array.from({ length: 4 }, (_, idx) => {
+      const startIdx = Math.floor((idx + 0.3) * (trackPoints.length / 4)) % trackPoints.length;
+      const tp = trackPoints[startIdx];
+      return {
+        id: idx,
+        trackIdx: startIdx,
+        x: tp.x,
+        y: tp.y,
+        a: tp.angle,
+        v: 140 + Math.random() * 50,
+        color: npcColors[idx % npcColors.length],
+        nearMissed: false,
+      };
+    });
+  };
 
-  // --- 4. Autonomous AI Traffic (NPC Cars) with "Near Miss" bonus ---
-  const npcColors = ['#f59e0b', '#ec4899', '#10b981', '#8b5cf6', '#06b6d4'];
-  const npcCars = Array.from({ length: 5 }, (_, idx) => ({
-    id: idx,
-    x: ((idx % cols) + 1) * GAP,
-    y: ((idx % rows) + 1) * GAP,
-    a: (idx % 2 === 0 ? 0 : Math.PI / 2),
-    v: 110 + Math.random() * 60,
-    color: npcColors[idx % npcColors.length],
-    nearMissed: false,
-  }));
+  initTrackItems();
 
-  // --- 5. Tire Skid Marks, Smoke Particles & Floating Text Popups ---
+  // Skid Marks, Particles & Score Popups
   const skidMarks: { x1: number; y1: number; x2: number; y2: number; alpha: number; color?: string }[] = [];
-  const particles: { x: number; y: number; vx: number; vy: number; r: number; alpha: number; color: string; life: number; maxLife: number }[] = [];
+  const particles: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    r: number;
+    alpha: number;
+    color: string;
+    life: number;
+    maxLife: number;
+  }[] = [];
   const popups: { text: string; x: number; y: number; color: string; alpha: number; scale: number }[] = [];
 
   const addPopup = (text: string, x: number, y: number, color = '#fbbf24') => {
     popups.push({ text, x, y, color, alpha: 1.0, scale: 1.2 });
+  };
+
+  const regenerateNewTrack = () => {
+    currentArchetypeIdx = (currentArchetypeIdx + 1) % archetypes.length;
+    const generated = generateProceduralTrack(archetypes[currentArchetypeIdx], projects);
+    WW = generated.WW;
+    WH = generated.WH;
+    trackPoints = generated.trackPoints;
+    spots = generated.spots;
+
+    // Reset car at start line
+    car.x = trackPoints[0].x;
+    car.y = trackPoints[0].y;
+    car.a = trackPoints[0].angle;
+    car.vx = 0;
+    car.vy = 0;
+    car.v = 0;
+    car.nitro = 100;
+    car.isBoosting = false;
+    car.isDrifting = false;
+    car.driftScore = 0;
+
+    skidMarks.length = 0;
+    particles.length = 0;
+    initTrackItems();
+
+    stationAudio.playNitroBoost();
+    addPopup(
+      `TRACK GENERATED: ${ARCHETYPE_NAMES[archetypes[currentArchetypeIdx]]}`,
+      car.x,
+      car.y - 45,
+      '#38bdf8'
+    );
   };
 
   // Preload project images
@@ -457,15 +871,13 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
     if (url) getOrLoadImage(p.id, url);
   });
 
-  // Responsive layout calculation for In-Game Project Menu (Zero Black Bars & Zero Overlap)
+  // Responsive layout for In-Game Project Menu
   const getMenuLayout = () => {
     const { W, H } = getDims();
     const isMobile = W < 640;
     const isLandscape = W >= H && H < 500;
-
     const current = projects[selectedProjectIdx] || projects[0];
 
-    // Compute dimensions that NEVER exceed the screen
     let menuW = Math.min(620, W - 24);
     let menuH = Math.min(isMobile ? 490 : 400, H - 36);
     if (isLandscape) {
@@ -475,11 +887,9 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
 
     const menuX = (W - menuW) / 2;
     const menuY = Math.max(12, (H - menuH) / 2);
-
     let btns: { id: string; label: string; x: number; y: number; w: number; h: number; enabled: boolean; action: () => void }[] = [];
 
     if (!isMobile && !isLandscape) {
-      // Desktop standard layout
       btns = [
         {
           id: 'live',
@@ -543,7 +953,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
         },
       ];
     } else {
-      // Mobile & Landscape Responsive compact layout
       const halfW = (menuW - 36) / 2;
       const bY1 = menuY + menuH - 82;
       const bY2 = menuY + menuH - 42;
@@ -624,7 +1033,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
     score: () =>
       mode === 'menu'
         ? `PROJECT ${selectedProjectIdx + 1}/${projects.length}`
-        : `SCORE: ${car.totalScore + car.driftScore} · ${seen.size}/${projects.length} VISITED`,
+        : `${ARCHETYPE_NAMES[archetypes[currentArchetypeIdx]]} · ${car.totalScore + car.driftScore} PTS · ${seen.size}/${projects.length} VISITED`,
     over: () => false,
     isMenuOpen: () => mode === 'menu',
     getNearProject: () => (near ? near.p.title : null),
@@ -644,6 +1053,12 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
     },
 
     onKeyDown: (code: string) => {
+      if (mode === 'drive') {
+        if (code === 'KeyR') {
+          regenerateNewTrack();
+          return true;
+        }
+      }
       if (mode === 'menu') {
         if (code === 'KeyW' || code === 'ArrowUp') {
           if (selectedButton >= 2) selectedButton = 0;
@@ -685,7 +1100,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             return;
           }
         }
-        // Click outside closes menu
         if (cx < menuX || cx > menuX + menuW || cy < menuY || cy > menuY + menuH) {
           mode = 'drive';
         }
@@ -708,25 +1122,26 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
       const throttleInput = up(k) ? 1 : 0;
       const brakeInput = down(k) ? 1 : 0;
       const wantDrift = driftKey(k);
+      const wantBoost = boostKey(k);
 
       // --- 2. Steering Interpolation ---
-      const targetSteer = steerInput * 0.44; // ~25 deg
+      const targetSteer = steerInput * 0.46; // ~26 deg
       car.steerAngle += (targetSteer - car.steerAngle) * Math.min(1, 14 * dt);
 
       // --- 3. Nitro Boost Logic ---
-      const isBoosting = (wantDrift || k.has('ShiftLeft')) && car.nitro > 4 && throttleInput > 0;
+      const isBoosting = wantBoost && car.nitro > 4 && throttleInput > 0;
       if (isBoosting) {
         car.nitro = Math.max(0, car.nitro - 34 * dt);
         car.isBoosting = true;
         if (Math.random() < 0.25) stationAudio.playNitroBoost();
       } else {
         car.isBoosting = false;
-        car.nitro = Math.min(100, car.nitro + 7 * dt);
+        car.nitro = Math.min(100, car.nitro + 8 * dt);
       }
 
-      // Faster Top Speed & Acceleration as requested!
-      const maxSpeed = car.isBoosting ? 680 : 460;
-      const accel = car.isBoosting ? 1150 : 540;
+      // Responsive Speed & Acceleration
+      const maxSpeed = car.isBoosting ? 680 : 470;
+      const accel = car.isBoosting ? 1180 : 560;
 
       const fwdX = Math.cos(car.a);
       const fwdY = Math.sin(car.a);
@@ -742,7 +1157,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
       }
       if (brakeInput > 0) {
         if (forwardVel > 30) {
-          forwardVel -= 780 * dt; // Strong brakes
+          forwardVel -= 820 * dt; // Strong Brakes
         } else {
           forwardVel -= 300 * dt; // Reverse
         }
@@ -750,24 +1165,52 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
 
       // --- 4. Realistic Drift Physics & Lateral Slip ---
       const speed = Math.hypot(car.vx, car.vy);
-      const isDriftingInput = wantDrift || (brakeInput > 0 && Math.abs(steerInput) > 0.3 && speed > 160);
-      const isSlipping = Math.abs(lateralVel) > 85 || (isDriftingInput && speed > 130);
+      const isDriftingInput = wantDrift || (brakeInput > 0 && Math.abs(steerInput) > 0.3 && speed > 150);
+      const isSlipping = Math.abs(lateralVel) > 80 || (isDriftingInput && speed > 120);
 
       // Lateral grip drops during drift so the tail kicks out!
-      const lateralGrip = isSlipping ? 0.36 : 0.94;
+      const lateralGrip = isSlipping ? 0.35 : 0.94;
       const lateralFriction = Math.pow(1 - lateralGrip, dt * 10);
-      const rollingFriction = Math.pow(0.94, dt * 5);
+
+      // Distance to road check for off-road friction
+      let nearestPoint = trackPoints[0];
+      let minTrackDist = 999999;
+      for (let i = 0; i < trackPoints.length; i += 3) {
+        const d = Math.hypot(trackPoints[i].x - car.x, trackPoints[i].y - car.y);
+        if (d < minTrackDist) {
+          minTrackDist = d;
+          nearestPoint = trackPoints[i];
+        }
+      }
+
+      const isOffRoad = minTrackDist > 65; // outside road ribbon
+      const rollingFriction = Math.pow(isOffRoad ? 0.88 : 0.94, dt * 5);
 
       lateralVel *= lateralFriction;
       forwardVel *= rollingFriction;
+
+      // Off-road dust particles
+      if (isOffRoad && speed > 80 && Math.random() < 0.4) {
+        particles.push({
+          x: car.x + (Math.random() - 0.5) * 16,
+          y: car.y + (Math.random() - 0.5) * 16,
+          vx: -car.vx * 0.15 + (Math.random() - 0.5) * 30,
+          vy: -car.vy * 0.15 + (Math.random() - 0.5) * 30,
+          r: 5 + Math.random() * 5,
+          alpha: 0.4,
+          color: '#71717a',
+          life: 0.35,
+          maxLife: 0.35,
+        });
+      }
 
       // Reconstruct velocity
       car.vx = fwdX * forwardVel + rightX * lateralVel;
       car.vy = fwdY * forwardVel + rightY * lateralVel;
 
       // Turning & Oversteer
-      const turnRate = (forwardVel / 180) * car.steerAngle * 4.4;
-      const driftOversteer = isSlipping ? Math.sign(lateralVel) * 1.8 * (speed / 300) : 0;
+      const turnRate = (forwardVel / 180) * car.steerAngle * 4.5;
+      const driftOversteer = isSlipping ? Math.sign(lateralVel) * 1.9 * (speed / 300) : 0;
       car.a += (turnRate + driftOversteer) * dt;
 
       // Cap speed
@@ -777,10 +1220,8 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
         car.vy = (car.vy / curSpeed) * maxSpeed;
       }
 
-      const prevX = car.x;
-      const prevY = car.y;
-      car.x = Math.max(25, Math.min(WW - 25, car.x + car.vx * dt));
-      car.y = Math.max(25, Math.min(WH - 25, car.y + car.vy * dt));
+      car.x = Math.max(30, Math.min(WW - 30, car.x + car.vx * dt));
+      car.y = Math.max(30, Math.min(WH - 30, car.y + car.vy * dt));
       car.v = forwardVel;
 
       // --- 5. Drift Scoring, Skid Marks & Smoke ---
@@ -792,8 +1233,12 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
       if (isSlipping && speed > 110) {
         car.isDrifting = true;
         car.driftTime += dt;
-        car.driftCombo = Math.min(5.0, 1.0 + Math.floor(car.driftTime * 2) * 0.5);
-        car.driftScore += Math.floor(speed * 0.4 * car.driftCombo * dt);
+
+        // Drift Zone Multiplier Bonus
+        const inDriftZone = nearestPoint.isDriftZone;
+        const baseMultiplier = 1.0 + Math.floor(car.driftTime * 2) * 0.5;
+        car.driftCombo = Math.min(6.0, inDriftZone ? baseMultiplier * 2.0 : baseMultiplier);
+        car.driftScore += Math.floor(speed * 0.45 * car.driftCombo * dt);
         car.miniTurboCharge += dt;
 
         stationAudio.playDriftScreech(Math.min(1.0, Math.abs(lateralVel) / 220));
@@ -805,6 +1250,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           x2: rearLeftX - car.vx * dt * 0.6,
           y2: rearLeftY - car.vy * dt * 0.6,
           alpha: 0.65,
+          color: inDriftZone ? 'rgba(236,72,153,0.45)' : undefined,
         });
         skidMarks.push({
           x1: rearRightX,
@@ -812,6 +1258,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           x2: rearRightX - car.vx * dt * 0.6,
           y2: rearRightY - car.vy * dt * 0.6,
           alpha: 0.65,
+          color: inDriftZone ? 'rgba(236,72,153,0.45)' : undefined,
         });
 
         // Puff smoke particles
@@ -823,7 +1270,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             vy: -car.vy * 0.15 + (Math.random() - 0.5) * 20,
             r: 4 + Math.random() * 5,
             alpha: 0.5,
-            color: '#e2e8f0',
+            color: inDriftZone ? '#f472b6' : '#e2e8f0',
             life: 0.45,
             maxLife: 0.45,
           });
@@ -834,18 +1281,17 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             vy: -car.vy * 0.15 + (Math.random() - 0.5) * 20,
             r: 4 + Math.random() * 5,
             alpha: 0.5,
-            color: '#e2e8f0',
+            color: inDriftZone ? '#f472b6' : '#e2e8f0',
             life: 0.45,
             maxLife: 0.45,
           });
         }
       } else {
         if (car.isDrifting) {
-          // Exited drift: bank drift points & trigger Mini-Turbo!
           if (car.miniTurboCharge > 0.8) {
-            car.vx += fwdX * 240;
-            car.vy += fwdY * 240;
-            car.nitro = Math.min(100, car.nitro + 30);
+            car.vx += fwdX * 250;
+            car.vy += fwdY * 250;
+            car.nitro = Math.min(100, car.nitro + 35);
             stationAudio.playDriftBonus();
             addPopup(`MINI-TURBO! +${car.driftScore}`, car.x, car.y - 25, '#38bdf8');
           } else if (car.driftScore > 50) {
@@ -858,6 +1304,15 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           car.miniTurboCharge = 0;
         }
         car.isDrifting = false;
+      }
+
+      // Check Speed Boost Pad trigger
+      if (nearestPoint.isBoostPad && minTrackDist < 40 && !car.isBoosting) {
+        car.vx += fwdX * 240;
+        car.vy += fwdY * 240;
+        car.nitro = 100;
+        stationAudio.playNitroBoost();
+        addPopup('BOOST PAD! ⚡', car.x, car.y - 30, '#06b6d4');
       }
 
       // Fade skid marks
@@ -924,26 +1379,28 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
 
         if (Math.hypot(cone.x - car.x, cone.y - car.y) < 26) {
           const hitAngle = Math.atan2(cone.y - car.y, cone.x - car.x);
-          cone.vx = Math.cos(hitAngle) * (speed + 200);
-          cone.vy = Math.sin(hitAngle) * (speed + 200);
-          cone.vrot = (Math.random() - 0.5) * 20;
+          cone.vx = Math.cos(hitAngle) * (speed + 220);
+          cone.vy = Math.sin(hitAngle) * (speed + 220);
+          cone.vrot = (Math.random() - 0.5) * 22;
           stationAudio.playCrateSmash();
         }
       });
 
-      // --- 9. Autonomous AI Traffic (NPCs) & "Near Miss" ---
+      // --- 9. Autonomous AI Racers following the road track ---
       npcCars.forEach((npc) => {
-        npc.x += Math.cos(npc.a) * npc.v * dt;
-        npc.y += Math.sin(npc.a) * npc.v * dt;
+        const stepDist = (npc.v * dt) / 14; // advance along track points
+        npc.trackIdx = (npc.trackIdx + stepDist) % trackPoints.length;
+        const currentIdx = Math.floor(npc.trackIdx);
+        const nextIdx = (currentIdx + 1) % trackPoints.length;
+        const fraction = npc.trackIdx - currentIdx;
 
-        // Wrap around world edges
-        if (npc.x > WW) npc.x = 20;
-        if (npc.x < 0) npc.x = WW - 20;
-        if (npc.y > WH) npc.y = 20;
-        if (npc.y < 0) npc.y = WH - 20;
+        const pA = trackPoints[currentIdx];
+        const pB = trackPoints[nextIdx];
+        npc.x = pA.x + (pB.x - pA.x) * fraction;
+        npc.y = pA.y + (pB.y - pA.y) * fraction;
+        npc.a = pA.angle;
 
         const dist = Math.hypot(npc.x - car.x, npc.y - car.y);
-        // Near miss reward (drift/speed close without touching!)
         if (dist < 60 && dist > 32 && speed > 220 && !npc.nearMissed) {
           npc.nearMissed = true;
           car.totalScore += 250;
@@ -955,64 +1412,150 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
         // Bump collision
         if (dist < 32) {
           const bumpAngle = Math.atan2(car.y - npc.y, car.x - npc.x);
-          car.vx += Math.cos(bumpAngle) * 160;
-          car.vy += Math.sin(bumpAngle) * 160;
+          car.vx += Math.cos(bumpAngle) * 180;
+          car.vy += Math.sin(bumpAngle) * 180;
           stationAudio.playCarBump();
         }
       });
 
-      // Check near project buildings
-      near = spots.find((s) => Math.hypot(s.x - car.x, s.y - car.y) < 78) ?? null;
-      if (near) seen.add(near.p.id);
+      // Check near project showcases along the track
+      near = spots.find((s) => Math.hypot(s.x - car.x, s.y - car.y) < 85) ?? null;
+      if (near && !seen.has(near.p.id)) {
+        seen.add(near.p.id);
+        car.totalScore += 500;
+        stationAudio.playDriftBonus();
+        addPopup(`SHOWCASE FOUND: ${near.p.title.slice(0, 16)}! +500`, near.x, near.y - 30, '#facc15');
+      }
     },
 
     draw(c) {
       const { W, H, touch } = getDims();
 
-      // --- 1. World View with Smooth Camera Tracking ---
+      // --- 1. World View with Camera Centered on Car ---
       c.save();
       c.translate(W / 2 - car.x, H / 2 - car.y);
 
-      // Deep dark terrain
-      c.fillStyle = '#141417';
+      // Deep dark cyber terrain background
+      c.fillStyle = '#111116';
       c.fillRect(0, 0, WW, WH);
 
-      // Draw Roads
-      const roadW = 76;
-      for (let i = 1; i <= rows; i++) {
-        // Horizontal road
-        c.fillStyle = '#26262b';
-        c.fillRect(0, i * GAP - roadW / 2, WW, roadW);
-        // Curbs
-        c.fillStyle = '#3f3f46';
-        c.fillRect(0, i * GAP - roadW / 2 - 4, WW, 4);
-        c.fillRect(0, i * GAP + roadW / 2, WW, 4);
-      }
-      for (let i = 1; i <= cols; i++) {
-        // Vertical road
-        c.fillStyle = '#26262b';
-        c.fillRect(i * GAP - roadW / 2, 0, roadW, WH);
-        // Curbs
-        c.fillStyle = '#3f3f46';
-        c.fillRect(i * GAP - roadW / 2 - 4, 0, 4, WH);
-        c.fillRect(i * GAP + roadW / 2, 0, 4, WH);
-      }
-
-      // Yellow double centerlines & white dashes
-      c.strokeStyle = '#eab308';
-      c.lineWidth = 2;
-      c.setLineDash([16, 16]);
+      // Cyber Grid Lines
+      c.strokeStyle = 'rgba(255,255,255,0.025)';
+      c.lineWidth = 1;
+      const gridSize = 160;
       c.beginPath();
-      for (let i = 1; i <= rows; i++) {
-        c.moveTo(0, i * GAP);
-        c.lineTo(WW, i * GAP);
+      for (let x = 0; x <= WW; x += gridSize) {
+        c.moveTo(x, 0);
+        c.lineTo(x, WH);
       }
-      for (let i = 1; i <= cols; i++) {
-        c.moveTo(i * GAP, 0);
-        c.lineTo(i * GAP, WH);
+      for (let y = 0; y <= WH; y += gridSize) {
+        c.moveTo(0, y);
+        c.lineTo(WW, y);
       }
       c.stroke();
+
+      // --- Draw Procedural Roads ---
+      const roadW = 96;
+      const halfW = roadW / 2;
+      const totalPoints = trackPoints.length;
+
+      // 1. Road Run-off Gravel / Base Border
+      c.strokeStyle = '#272733';
+      c.lineWidth = roadW + 28;
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+      c.beginPath();
+      for (let i = 0; i < totalPoints; i++) {
+        const pt = trackPoints[i];
+        if (i === 0) c.moveTo(pt.x, pt.y);
+        else c.lineTo(pt.x, pt.y);
+      }
+      c.closePath();
+      c.stroke();
+
+      // 2. Asphalt Road Ribbon
+      c.strokeStyle = '#1b1b22';
+      c.lineWidth = roadW;
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+      c.beginPath();
+      for (let i = 0; i < totalPoints; i++) {
+        const pt = trackPoints[i];
+        if (i === 0) c.moveTo(pt.x, pt.y);
+        else c.lineTo(pt.x, pt.y);
+      }
+      c.closePath();
+      c.stroke();
+
+      // 3. Racing Kerbs (Alternating Red and White on Apex Corners)
+      for (let i = 0; i < totalPoints; i += 2) {
+        const pt = trackPoints[i];
+        if (pt.isApex) {
+          const isRed = (i / 2) % 2 === 0;
+          c.fillStyle = isRed ? '#ef4444' : '#f8fafc';
+          // Outer and inner curb strips
+          c.fillRect(pt.x + pt.nx * (halfW + 4) - 4, pt.y + pt.ny * (halfW + 4) - 4, 8, 8);
+          c.fillRect(pt.x - pt.nx * (halfW + 4) - 4, pt.y - pt.ny * (halfW + 4) - 4, 8, 8);
+        }
+      }
+
+      // 4. Drift Zones (Neon Pink Surface Overlay & Text)
+      for (let i = 0; i < totalPoints; i += 4) {
+        const pt = trackPoints[i];
+        if (pt.isDriftZone) {
+          c.fillStyle = 'rgba(236, 72, 153, 0.12)';
+          c.beginPath();
+          c.arc(pt.x, pt.y, halfW, 0, Math.PI * 2);
+          c.fill();
+        }
+      }
+
+      // 5. Speed Boost Pads
+      trackPoints.forEach((pt) => {
+        if (pt.isBoostPad) {
+          c.save();
+          c.translate(pt.x, pt.y);
+          c.rotate(pt.angle);
+          c.fillStyle = 'rgba(6, 182, 212, 0.4)';
+          c.fillRect(-22, -18, 44, 36);
+          c.fillStyle = '#22d3ee';
+          c.font = 'bold 13px monospace';
+          c.textAlign = 'center';
+          c.fillText('>>>', 0, 4);
+          c.restore();
+        }
+      });
+
+      // 6. Yellow Dashed Centerline
+      c.strokeStyle = '#eab308';
+      c.lineWidth = 2.5;
+      c.setLineDash([16, 14]);
+      c.beginPath();
+      for (let i = 0; i < totalPoints; i++) {
+        const pt = trackPoints[i];
+        if (i === 0) c.moveTo(pt.x, pt.y);
+        else c.lineTo(pt.x, pt.y);
+      }
+      c.closePath();
+      c.stroke();
       c.setLineDash([]);
+
+      // 7. Checkered Start / Finish Line
+      if (trackPoints[0]) {
+        const sPt = trackPoints[0];
+        c.save();
+        c.translate(sPt.x, sPt.y);
+        c.rotate(sPt.angle);
+        const checkW = 12;
+        const checkH = 8;
+        for (let r = -halfW; r < halfW; r += checkH) {
+          for (let col = -checkW; col <= checkW; col += checkW) {
+            c.fillStyle = (Math.floor(r / checkH) + Math.floor(col / checkW)) % 2 === 0 ? '#ffffff' : '#09090b';
+            c.fillRect(col, r, checkW, checkH);
+          }
+        }
+        c.restore();
+      }
 
       // Draw Persistent Skid Marks
       skidMarks.forEach((sm) => {
@@ -1024,56 +1567,68 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
         c.stroke();
       });
 
-      // Draw Project Buildings with Image Previews & Parking Bays
+      // Draw Project Showcases / Pit Stops Along the Road
       spots.forEach((s) => {
         const isNear = near?.p.id === s.p.id;
+        const roadPt = trackPoints[s.roadIdx];
 
-        // Painted parking bay on road
-        c.strokeStyle = isNear ? '#fbbf24' : '#71717a';
-        c.lineWidth = 2;
-        c.strokeRect(s.x - 48, s.y - 48, 96, 96);
+        // Painted entrance slip lane from road to bay
+        if (roadPt) {
+          c.strokeStyle = isNear ? '#fbbf24' : 'rgba(251, 191, 36, 0.35)';
+          c.lineWidth = 3;
+          c.setLineDash([8, 8]);
+          c.beginPath();
+          c.moveTo(roadPt.x, roadPt.y);
+          c.lineTo(s.x, s.y);
+          c.stroke();
+          c.setLineDash([]);
+        }
 
-        // Building outer border
-        c.fillStyle = isNear ? '#fbbf24' : seen.has(s.p.id) ? '#d97706' : '#e0a030';
-        c.fillRect(s.x - 44, s.y - 44, 88, 88);
+        // Painted parking bay platform
+        c.fillStyle = '#18181f';
+        c.fillRect(s.x - 52, s.y - 52, 104, 104);
+        c.strokeStyle = isNear ? '#fbbf24' : seen.has(s.p.id) ? '#10b981' : '#52525b';
+        c.lineWidth = isNear ? 2.5 : 1.5;
+        c.strokeRect(s.x - 52, s.y - 52, 104, 104);
 
         // Building interior
         c.fillStyle = '#09090b';
-        c.fillRect(s.x - 38, s.y - 38, 76, 76);
+        c.fillRect(s.x - 44, s.y - 44, 88, 88);
 
-        // Draw project picture
+        // Thumbnail image
         const img = imageCache.get(s.p.id);
         if (img && img.complete && img.naturalWidth > 0) {
           c.save();
           c.beginPath();
-          c.rect(s.x - 38, s.y - 38, 76, 76);
+          c.rect(s.x - 44, s.y - 44, 88, 88);
           c.clip();
-          c.drawImage(img, s.x - 38, s.y - 38, 76, 76);
+          c.drawImage(img, s.x - 44, s.y - 44, 88, 88);
           c.restore();
         } else {
           c.fillStyle = '#18181b';
-          c.fillRect(s.x - 38, s.y - 38, 76, 76);
-          c.fillStyle = '#71717a';
+          c.fillRect(s.x - 44, s.y - 44, 88, 88);
+          c.fillStyle = '#a1a1aa';
           c.font = 'bold 11px monospace';
           c.textAlign = 'center';
-          c.fillText('PROJECT', s.x, s.y + 4);
+          c.fillText('SHOWCASE', s.x, s.y + 4);
         }
 
         // Inner outline
         c.strokeStyle = isNear ? '#fbbf24' : 'rgba(255,255,255,0.2)';
-        c.lineWidth = isNear ? 2.5 : 1;
-        c.strokeRect(s.x - 38, s.y - 38, 76, 76);
+        c.lineWidth = isNear ? 2 : 1;
+        c.strokeRect(s.x - 44, s.y - 44, 88, 88);
 
-        // Nameplate banner below building
-        c.fillStyle = 'rgba(9, 9, 11, 0.92)';
-        c.fillRect(s.x - 52, s.y + 46, 104, 22);
+        // Nameplate banner below pavilion
+        c.fillStyle = 'rgba(9, 9, 11, 0.94)';
+        c.fillRect(s.x - 60, s.y + 48, 120, 24);
         c.strokeStyle = isNear ? '#fbbf24' : '#52525b';
         c.lineWidth = 1;
-        c.strokeRect(s.x - 52, s.y + 46, 104, 22);
-        c.fillStyle = isNear ? '#fbbf24' : '#e4e4e7';
+        c.strokeRect(s.x - 60, s.y + 48, 120, 24);
+
+        c.fillStyle = isNear ? '#fbbf24' : seen.has(s.p.id) ? '#34d399' : '#e4e4e7';
         c.font = 'bold 11px monospace';
         c.textAlign = 'center';
-        c.fillText(s.p.title.slice(0, 14), s.x, s.y + 61);
+        c.fillText(`${seen.has(s.p.id) ? '✓ ' : ''}${s.p.title.slice(0, 14)}`, s.x, s.y + 64);
       });
 
       // Draw Collectible Star Coins
@@ -1085,7 +1640,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
         c.fillStyle = '#facc15';
         c.shadowColor = '#facc15';
         c.shadowBlur = 10;
-        // 5-point star
         c.beginPath();
         for (let i = 0; i < 5; i++) {
           const a1 = (i * Math.PI * 2) / 5 - Math.PI / 2;
@@ -1168,7 +1722,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
       });
       c.globalAlpha = 1.0;
 
-      // --- 2. Draw The Cyber Drift Sports Car ---
+      // --- 2. Draw Player Cyber Drift Sports Car ---
       c.save();
       c.translate(car.x, car.y);
       c.rotate(car.a);
@@ -1206,7 +1760,7 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
       drawWheel(-14, 12, 0);
 
       // Aerodynamic Car Body
-      c.fillStyle = '#0284c7'; // Electric Cyan Blue Body
+      c.fillStyle = '#0284c7';
       c.beginPath();
       c.moveTo(-20, -10);
       c.lineTo(16, -10);
@@ -1300,15 +1854,12 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
 
       c.restore();
 
-      // --- 3. HUD: Speedometer, Nitro Gauge & Minimap ---
+      // --- 3. HUD: Speedometer, Nitro Gauge & Curved Minimap ---
       if (mode === 'drive') {
         const speedKmh = Math.round(Math.abs(car.v) * 0.85);
-
-        // Bottom-Right or Top-Right HUD depending on touch
         const hudX = 20;
         const hudY = touch ? 64 : H - 54;
 
-        // Speed & Nitro cluster
         c.fillStyle = 'rgba(9, 9, 11, 0.85)';
         c.fillRect(hudX, hudY, 140, 44);
         c.strokeStyle = '#f59e0b';
@@ -1334,32 +1885,73 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           c.fillText(`DRIFT ${car.driftCombo.toFixed(1)}x`, hudX + 150, hudY + 22);
         }
 
-        // Minimap
-        const mw = Math.min(120, Math.max(80, W * 0.18));
+        // Radar Minimap rendering the exact curved road path
+        const mw = Math.min(140, Math.max(90, W * 0.18));
         const mh = (mw * WH) / WW;
         const mmX = W - mw - 16;
         const mmY = 54;
 
-        c.fillStyle = 'rgba(0,0,0,0.78)';
+        c.fillStyle = 'rgba(0,0,0,0.85)';
         c.fillRect(mmX, mmY, mw, mh);
         c.strokeStyle = '#e0a030';
         c.lineWidth = 1;
         c.strokeRect(mmX, mmY, mw, mh);
 
+        // Draw track curve on minimap
+        c.strokeStyle = 'rgba(255,255,255,0.35)';
+        c.lineWidth = 2.5;
+        c.beginPath();
+        for (let i = 0; i < trackPoints.length; i += 4) {
+          const pt = trackPoints[i];
+          const mx = mmX + (pt.x / WW) * mw;
+          const my = mmY + (pt.y / WH) * mh;
+          if (i === 0) c.moveTo(mx, my);
+          else c.lineTo(mx, my);
+        }
+        c.closePath();
+        c.stroke();
+
+        // Project dots
         spots.forEach((s) => {
-          c.fillStyle = seen.has(s.p.id) ? '#c8553d' : '#e0a030';
+          c.fillStyle = seen.has(s.p.id) ? '#10b981' : '#e0a030';
           c.fillRect(mmX + (s.x / WW) * mw - 3, mmY + (s.y / WH) * mh - 3, 6, 6);
         });
 
+        // NPC dots
+        npcCars.forEach((npc) => {
+          c.fillStyle = npc.color;
+          c.fillRect(mmX + (npc.x / WW) * mw - 2, mmY + (npc.y / WH) * mh - 2, 4, 4);
+        });
+
+        // Player dot with heading arrow
+        const pmX = mmX + (car.x / WW) * mw;
+        const pmY = mmY + (car.y / WH) * mh;
         c.fillStyle = '#38bdf8';
-        c.fillRect(mmX + (car.x / WW) * mw - 2, mmY + (car.y / WH) * mh - 2, 5, 5);
+        c.fillRect(pmX - 2.5, pmY - 2.5, 5, 5);
+        c.strokeStyle = '#38bdf8';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(pmX, pmY);
+        c.lineTo(pmX + Math.cos(car.a) * 7, pmY + Math.sin(car.a) * 7);
+        c.stroke();
+
+        // Control hints bar for desktop players
+        if (!touch) {
+          c.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          c.font = '10px monospace';
+          c.textAlign = 'center';
+          c.fillText(
+            'WASD / ARROWS: DRIVE · SPACE / X: DRIFT · SHIFT / B: NITRO · R: NEW TRACK · E: VIEW PROJECT',
+            W / 2,
+            H - 14
+          );
+        }
       }
 
-      // --- 4. Responsive In-Game Canvas Project Menu (Zero Black Bars & Zero Overlap) ---
+      // --- 4. Responsive In-Game Canvas Project Menu ---
       if (mode === 'menu') {
         const { menuX, menuY, menuW, menuH, isMobile, isLandscape, current, btns } = getMenuLayout();
 
-        // Dark dim backdrop
         c.fillStyle = 'rgba(6, 8, 14, 0.96)';
         c.fillRect(menuX, menuY, menuW, menuH);
 
@@ -1381,11 +1973,9 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
         c.fillText('[ESC / TAP OUT] BACK', menuX + menuW - 12, menuY + 20);
 
         if (!isMobile && !isLandscape) {
-          // Desktop Layout: Side-by-side
           const picW = Math.min(210, Math.floor(menuW * 0.42));
           const picH = Math.floor(picW * 0.72);
 
-          // Picture frame
           c.fillStyle = '#09090b';
           c.fillRect(menuX + 20, menuY + 44, picW, picH);
           c.strokeStyle = '#e0a030';
@@ -1408,14 +1998,12 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             c.fillText(hasImg ? 'LOADING...' : 'NO PREVIEW', menuX + 20 + picW / 2, menuY + 44 + picH / 2);
           }
 
-          // Tags below image
           c.textAlign = 'left';
           c.fillStyle = '#fbbf24';
           c.font = 'bold 10px monospace';
           const tags = (current.tags || []).slice(0, 3).map((t) => `[${t}]`).join(' ');
           c.fillText(tags.slice(0, 26), menuX + 20, menuY + 44 + picH + 18);
 
-          // Right Column: Title & Description
           const rightX = menuX + 20 + picW + 20;
           const rightW = menuW - (20 + picW + 40);
 
@@ -1435,7 +2023,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           c.font = '11px monospace';
           wrapCanvasText(c, current.description || 'No description provided.', rightX, menuY + 90, rightW, 16, 7);
         } else {
-          // Mobile & Landscape Compact Layout
           const picH = isLandscape ? 80 : 96;
           const picW = isLandscape ? 130 : menuW - 32;
           const picX = menuX + 16;
@@ -1458,7 +2045,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           }
 
           if (isLandscape) {
-            // Landscape right side
             const rightX = picX + picW + 16;
             const rightW = menuW - (picW + 48);
             c.fillStyle = '#ffa73d';
@@ -1470,7 +2056,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
             c.font = '10px monospace';
             wrapCanvasText(c, current.description || '', rightX, picY + 36, rightW, 14, 3);
           } else {
-            // Portrait stacked
             c.fillStyle = '#ffa73d';
             c.font = 'bold 14px monospace';
             c.textAlign = 'left';
@@ -1482,7 +2067,6 @@ const drive = (k: Keys, { projects }: Ctx, getDims: () => { W: number; H: number
           }
         }
 
-        // Draw Action & Navigation Buttons
         btns.forEach((b, i) => {
           const isSelected = selectedButton === i;
           if (isSelected) {
@@ -1647,10 +2231,13 @@ const Arcade: React.FC<{
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    let g = GAMES[game](keys, ctx, getDims);
+    let g = (GAMES[game] || GAMES.drive)(keys, ctx, getDims);
     gameInstanceRef.current = g;
 
     const onKey = (e: KeyboardEvent) => {
+      // Allow browser developer keys through
+      if (e.code === 'F12' || e.code === 'F11' || e.code === 'F5') return;
+
       if (e.type === 'keydown' && g.onKeyDown && g.onKeyDown(e.code)) {
         e.preventDefault();
         return;
@@ -1658,12 +2245,39 @@ const Arcade: React.FC<{
 
       if (isPaused) return;
       if (e.type === 'keydown' && (e.code === 'Escape' || e.code === 'KeyQ')) return handleExitGame();
-      e.preventDefault();
+
+      // Only prevent default on game-related keys to avoid blocking normal interactions
+      if (
+        [
+          'ArrowUp',
+          'ArrowDown',
+          'ArrowLeft',
+          'ArrowRight',
+          'KeyW',
+          'KeyA',
+          'KeyS',
+          'KeyD',
+          'Space',
+          'KeyE',
+          'KeyR',
+          'KeyX',
+          'ShiftLeft',
+          'ShiftRight',
+        ].includes(e.code)
+      ) {
+        e.preventDefault();
+      }
+
       if (e.type === 'keydown') {
         keys.add(e.code);
-        if (e.code === 'Space' && g.over()) g = GAMES[game](keys, ctx, getDims);
+        if (e.code === 'Space' && g.over()) {
+          g = (GAMES[game] || GAMES.drive)(keys, ctx, getDims);
+          gameInstanceRef.current = g;
+        }
         if ((e.code === 'KeyE' || e.code === 'Enter') && !e.repeat) g.act?.();
-      } else keys.delete(e.code);
+      } else {
+        keys.delete(e.code);
+      }
     };
 
     window.addEventListener('keydown', onKey);
@@ -1704,14 +2318,24 @@ const Arcade: React.FC<{
         c.shadowBlur = 0;
 
         if (g.over()) {
-          c.fillStyle = 'rgba(0,0,0,0.7)';
+          c.fillStyle = 'rgba(0,0,0,0.75)';
           c.fillRect(0, 0, canvas.width, canvas.height);
-          neon(c, '#fff', 0);
-          c.font = 'bold 32px monospace';
+          const overInfo = g.getGameOverText ? g.getGameOverText() : { title: 'GAME OVER', subtitle: '' };
+
+          neon(c, '#f43f5e', 14);
+          c.font = 'bold 34px monospace';
           c.textAlign = 'center';
-          c.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 12);
-          c.font = '16px monospace';
-          c.fillText(touch ? 'TAP TO RESTART' : 'SPACE to restart', canvas.width / 2, canvas.height / 2 + 24);
+          c.fillText(overInfo.title, canvas.width / 2, canvas.height / 2 - 16);
+
+          if (overInfo.subtitle) {
+            neon(c, '#fbbf24', 0);
+            c.font = 'bold 17px monospace';
+            c.fillText(overInfo.subtitle, canvas.width / 2, canvas.height / 2 + 18);
+          }
+
+          neon(c, '#ffffff', 0);
+          c.font = '15px monospace';
+          c.fillText(touch ? 'TAP TO RESTART' : 'PRESS SPACE TO RESTART', canvas.width / 2, canvas.height / 2 + 54);
         }
         if (hud.current) hud.current.textContent = g.score();
       } catch (err) {
@@ -1736,12 +2360,26 @@ const Arcade: React.FC<{
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
+    // If game is over, restart on click/tap
+    if (gameInstanceRef.current?.over()) {
+      gameInstanceRef.current.act?.();
+      return;
+    }
+
     if (gameInstanceRef.current?.onClick) {
       gameInstanceRef.current.onClick(cx, cy);
     } else if (gameInstanceRef.current?.act) {
       gameInstanceRef.current.act();
     }
   };
+
+  const handleTriggerNewTrack = () => {
+    if (gameInstanceRef.current?.onKeyDown) {
+      gameInstanceRef.current.onKeyDown('KeyR');
+    }
+  };
+
+  const displayGameTitle = game === 'drive' ? 'CYBER DRIFT' : game.toUpperCase();
 
   return (
     <div
@@ -1761,13 +2399,25 @@ const Arcade: React.FC<{
       {/* Floating Minimal Header (Responsive on Mobile) */}
       <div className="absolute top-2.5 sm:top-3 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between pointer-events-none">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 pr-2">
-          <span className="uppercase tracking-[0.2em] sm:tracking-[0.4em] text-xs sm:text-base font-bold text-amber-300 drop-shadow truncate">
-            {game}
+          <span className="uppercase tracking-[0.2em] sm:tracking-[0.35em] text-xs sm:text-base font-bold text-amber-300 drop-shadow truncate">
+            {displayGameTitle}
           </span>
           <div ref={hud} className="text-[11px] sm:text-sm font-bold text-amber-200/90 drop-shadow truncate" />
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+          {game === 'drive' && (
+            <button
+              onClick={handleTriggerNewTrack}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs rounded bg-zinc-950/80 hover:bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 hover:border-cyan-400 transition cursor-pointer backdrop-blur shadow"
+              title="Generate a new road circuit (R)"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">New Track (R)</span>
+              <span className="sm:hidden">Track</span>
+            </button>
+          )}
+
           <button
             onClick={toggleFullscreen}
             className="flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs rounded bg-zinc-950/80 hover:bg-zinc-800 text-amber-300 border border-amber-500/40 hover:border-amber-400 transition cursor-pointer backdrop-blur shadow"
@@ -1786,7 +2436,7 @@ const Arcade: React.FC<{
         </div>
       </div>
 
-      {/* Near Project Banner - Centered Prominently in Upper Zone (NEVER Covered by Touch Controls) */}
+      {/* Near Project Banner */}
       {game === 'drive' && nearProjectTitle && !isMenuOpen && (
         <div className="absolute top-14 sm:top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
           <button
@@ -1801,11 +2451,10 @@ const Arcade: React.FC<{
         </div>
       )}
 
-      {/* Mobile Touch Controls - FLOATING ON TOP OF THE GAME */}
+      {/* Mobile Touch Controls */}
       {touch && (
         <div className="absolute inset-0 pointer-events-none z-30 select-none">
           {game === 'drive' ? (
-            /* Driving Controls - Smoothly HIDDEN when in Menu Mode to eliminate UI overlaps! */
             <div
               className={`transition-opacity duration-200 ${
                 isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -1821,20 +2470,27 @@ const Arcade: React.FC<{
                 </Btn>
               </div>
 
-              {/* Right Side: Reverse ▼, Gas ▲, and DRIFT/NITRO ⚡ */}
-              <div className="absolute right-4 bottom-6 pointer-events-auto flex items-center gap-2.5">
-                <Btn code="ArrowDown" hold className="w-13 h-13 text-base">
+              {/* Right Side: Reverse ▼, Gas ▲, DRIFT ⚡ and NITRO 🚀 */}
+              <div className="absolute right-4 bottom-6 pointer-events-auto flex items-center gap-2">
+                <Btn code="ArrowDown" hold className="w-12 h-12 text-sm">
                   ▼
                 </Btn>
-                <Btn code="ArrowUp" hold className="w-15 h-15 text-xl">
+                <Btn code="ArrowUp" hold className="w-14 h-14 text-lg">
                   ▲
                 </Btn>
                 <Btn
                   code="Space"
                   hold
-                  className="px-4 h-13 rounded-full border-2 border-cyan-400 bg-cyan-950/70 text-cyan-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(6,182,212,0.5)] active:bg-cyan-400/40"
+                  className="px-3.5 h-12 rounded-full border-2 border-pink-400 bg-pink-950/70 text-pink-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(244,114,182,0.4)] active:bg-pink-400/40"
                 >
                   ⚡ DRIFT
+                </Btn>
+                <Btn
+                  code="ShiftLeft"
+                  hold
+                  className="px-3.5 h-12 rounded-full border-2 border-cyan-400 bg-cyan-950/70 text-cyan-300 font-bold text-xs tracking-wider shadow-[0_0_18px_rgba(6,182,212,0.4)] active:bg-cyan-400/40"
+                >
+                  🚀 NITRO
                 </Btn>
               </div>
             </div>
