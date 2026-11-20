@@ -4,7 +4,6 @@ import { BrowserRouter, Route, Routes, useLocation } from 'react-router';
 import Layout from './layouts/Main';
 import { initGA, logPageView } from './lib/ga';
 import About from './screens/About';
-import Contact from './screens/Contact';
 import NotFound from './screens/NotFound';
 import ProjectDetails from './screens/projects/ProjectDetails';
 import Projects from './screens/projects/Projects';
@@ -32,14 +31,6 @@ const AppContent: React.FC = () => {
         element={
           <Layout>
             <About />
-          </Layout>
-        }
-      />
-      <Route
-        path="/contact"
-        element={
-          <Layout>
-            <Contact />
           </Layout>
         }
       />

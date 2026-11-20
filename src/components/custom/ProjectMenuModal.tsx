@@ -89,14 +89,13 @@ export const ProjectMenuModal: React.FC<ProjectMenuModalProps> = ({
               title="Resume (ESC)"
             >
               <X className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">RESUME</span>
-              <span className="sm:hidden">EXIT</span>
+              <span>RESUME</span>
             </button>
           </div>
         </div>
 
         {/* Project Selector Tabs */}
-        <div className="flex items-center gap-1.5 px-3 sm:px-5 py-2 overflow-x-auto no-scrollbar border-b border-zinc-800 bg-zinc-950/80 shrink-0">
+        <div className="flex items-center gap-1.5 px-3 sm:px-5 py-2 overflow-x-auto terminal-scrollbar border-b border-zinc-800 bg-zinc-950/80 shrink-0">
           <span className="text-[10px] uppercase text-zinc-500 whitespace-nowrap mr-1 shrink-0">
             PROJECTS:
           </span>
@@ -121,7 +120,7 @@ export const ProjectMenuModal: React.FC<ProjectMenuModalProps> = ({
         </div>
 
         {/* Scrollable Content Body - Fully Responsive & Scrollable on Small Screens */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-3 sm:py-4 overscroll-contain">
+        <div className="flex-1 min-h-0 overflow-y-auto terminal-scrollbar px-3 sm:px-5 py-3 sm:py-4 overscroll-contain">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-5 items-start">
             {/* Project Picture Showcase */}
             <div className="md:col-span-6 flex flex-col gap-2">
@@ -137,8 +136,14 @@ export const ProjectMenuModal: React.FC<ProjectMenuModalProps> = ({
                     }}
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-full text-zinc-600 text-xs">
-                    No Preview Available
+                  <div className="flex flex-col items-center justify-center h-full bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.14),#09090b_70%)] px-4 text-center gap-2">
+                    <Terminal className="w-8 h-8 text-amber-400/70" />
+                    <span className="text-xs font-bold tracking-widest text-amber-300/90 uppercase">
+                      {current.title}
+                    </span>
+                    <span className="text-[10px] text-zinc-400 uppercase tracking-wider">
+                      CLI / SYSTEM UTILITY · DATA-CARD
+                    </span>
                   </div>
                 )}
 
@@ -213,7 +218,7 @@ export const ProjectMenuModal: React.FC<ProjectMenuModalProps> = ({
             <span className="sm:hidden">PREV</span>
           </button>
 
-          <div className="hidden sm:flex items-center gap-2 text-[11px] text-zinc-500">
+          <div className="hidden sm:flex items-center gap-2 text-[11px] text-zinc-400">
             <span>Use ← → to browse</span>
             <span>·</span>
             <span>ESC to resume</span>

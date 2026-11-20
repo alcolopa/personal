@@ -4,7 +4,7 @@ import ProjectMenuModal from '@/components/custom/ProjectMenuModal';
 import { mockProjects, mergeWithMockProjects } from '@/data/mockProjects';
 import stationAudio from '@/lib/stationAudio';
 import { Project } from '@/types/Project';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Gamepad2, Volume2, VolumeX } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -15,7 +15,7 @@ type Interactable = { pos: THREE.Vector3; label: string; action: () => void };
 
 const H = 5; // ceiling height
 const EYE = 1.7;
-const R = 0.35; // player radius
+const R = 0.45; // player radius (keeps camera clear of archway doorframes)
 
 function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lh: number, maxLines: number) {
   const words = text.split(' ');
@@ -99,12 +99,66 @@ function panel(title: string, body: string, w: number, h: number, footer = '', a
   return m;
 }
 
+function roomSign(title: string, subtitle: string, w: number, h: number, accent = '#ffa73d') {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = Math.round((1024 * h) / w);
+  const ctx = c.getContext('2d')!;
+
+  ctx.fillStyle = '#090b0f';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  // Subtle scanlines
+  ctx.fillStyle = 'rgba(255,255,255,0.025)';
+  for (let y = 0; y < c.height; y += 8) ctx.fillRect(0, y, c.width, 2);
+
+  // Glowing frame
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 8;
+  ctx.strokeRect(12, 12, c.width - 24, c.height - 24);
+
+  // Accent side bars
+  ctx.fillStyle = accent;
+  ctx.fillRect(24, 24, 14, c.height - 48);
+  ctx.fillRect(c.width - 38, 24, 14, c.height - 48);
+
+  // Title
+  ctx.fillStyle = accent;
+  ctx.font = 'bold 88px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(title, c.width / 2, c.height * 0.42);
+
+  // Subtitle
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = 'bold 34px monospace';
+  ctx.fillText(subtitle, c.width / 2, c.height * 0.76);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: tex, fog: false }),
+  );
+}
+
 const Station: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [locked, setLocked] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [game, setGame] = useState<string | null>(null);
-  const touch = window.matchMedia('(pointer: coarse)').matches;
+  const detectTouch = () =>
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(pointer: coarse)').matches ||
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      window.innerWidth < 768);
+  const [touch, setTouch] = useState<boolean>(detectTouch);
+  const touchRef = useRef<boolean>(touch);
+  touchRef.current = touch;
+  const [showTouchPad, setShowTouchPad] = useState<boolean>(detectTouch);
+  const [currentRoom, setCurrentRoom] = useState<'hub' | 'arcade' | 'command'>('hub');
+  const teleportRef = useRef<((room: 'hub' | 'arcade' | 'command') => void) | null>(null);
   const joy = useRef({ x: 0, y: 0 });
   const look = useRef({ x: 0, y: 0 });
   const want = useRef({ jump: false, act: false });
@@ -137,6 +191,16 @@ const Station: React.FC = () => {
   const projectsRef = useRef<Project[]>(import.meta.env.PROD ? [] : mockProjects);
   projectsRef.current = projects;
 
+  useEffect(() => {
+    const onResizeTouch = () => {
+      const t = detectTouch();
+      setTouch(t);
+      if (t) setShowTouchPad(true);
+    };
+    window.addEventListener('resize', onResizeTouch);
+    return () => window.removeEventListener('resize', onResizeTouch);
+  }, []);
+
   const openProject = useCallback((p: Project) => {
     if (document.pointerLockElement) {
       document.exitPointerLock();
@@ -153,7 +217,9 @@ const Station: React.FC = () => {
   // leaving a game re-locks the mouse straight away (runs inside the key press, so the browser allows it)
   const exitGame = useCallback(() => {
     setGame(null);
-    (mountRef.current as (HTMLDivElement & { lock?: () => void }) | null)?.lock?.();
+    if (!touchRef.current) {
+      (mountRef.current as (HTMLDivElement & { lock?: () => void }) | null)?.lock?.();
+    }
   }, []);
 
   useEffect(() => {
@@ -621,8 +687,9 @@ const Station: React.FC = () => {
 
     // High-resolution Sci-Fi Wall Bulkhead Texture [Color map, Emissive map]
     const panelCache = new Map<string, THREE.CanvasTexture[]>();
-    const panelTex = (neon: string) => {
-      const hit = panelCache.get(neon);
+    const panelTex = (neon: string, withText = true) => {
+      const key = `${neon}:${withText ? 1 : 0}`;
+      const hit = panelCache.get(key);
       if (hit) return hit;
       const mk = () => {
         const c = document.createElement('canvas');
@@ -681,12 +748,14 @@ const Station: React.FC = () => {
         }
       }
 
-      // Stenciled technical labels
-      g.fillStyle = '#64748b';
-      g.font = 'bold 22px monospace';
-      g.textAlign = 'left';
-      g.fillText('BULKHEAD SEC // 08-A', 50, 180);
-      g.fillText('STATION INTEGRITY 100%', 550, 180);
+      // Stenciled technical labels (only on upright room walls, never on rotated tunnels/domes)
+      if (withText) {
+        g.fillStyle = '#64748b';
+        g.font = 'bold 22px monospace';
+        g.textAlign = 'left';
+        g.fillText('BULKHEAD SEC // 08-A', 50, 180);
+        g.fillText('STATION INTEGRITY 100%', 550, 180);
+      }
 
       // 2. Emissive Map
       const e = mk();
@@ -706,7 +775,7 @@ const Station: React.FC = () => {
       }
 
       const res = [toTex(a), toTex(e)];
-      panelCache.set(neon, res);
+      panelCache.set(key, res);
       return res;
     };
 
@@ -783,7 +852,7 @@ const Station: React.FC = () => {
     const steel = new THREE.MeshStandardMaterial({ color: 0x9fa1a3, metalness: 0.6, roughness: 0.45 });
     let neonNow = '#ffa73d'; // accent for whatever is being built (set per room)
     const domeMat = () => {
-      const [m, e] = panelTex(neonNow).map((t) => {
+      const [m, e] = panelTex(neonNow, false).map((t) => {
         const c = t.clone();
         c.needsUpdate = true;
         c.repeat.set(8, 2);
@@ -819,13 +888,24 @@ const Station: React.FC = () => {
     const nrm = (t: number) => ((t % TAU) + TAU) % TAU;
     // polar position on a circle (angle from +z toward +x) plus the rotation that faces the centre
     const pol = (cx: number, cz: number, r: number, t: number) => [cx + r * Math.sin(t), cz + r * Math.cos(t), t + Math.PI] as const;
-    // wall material from a random rack texture; world=true for geometry whose UVs are in metres
-    const wallMat = (len: number, h: number, side: THREE.Side = THREE.DoubleSide, world = false) => {
-      const [m, e] = panelTex(neonNow).map((t) => {
+    // wall material from bulkhead texture; world=true for geometry whose UVs are in metres
+    const wallMat = (
+      len: number,
+      h: number,
+      side: THREE.Side = THREE.DoubleSide,
+      world = false,
+      flipX = false,
+      withText = true,
+    ) => {
+      const [m, e] = panelTex(neonNow, withText).map((t) => {
         const c = t.clone();
         c.needsUpdate = true;
-        if (world) c.repeat.set(1 / 3, 1 / 3);
-        else c.repeat.set(Math.max(0.3, len / 3), Math.max(0.3, h / 3));
+        if (world) {
+          c.repeat.set(flipX ? -1 / 3 : 1 / 3, 1 / 3);
+        } else {
+          const rx = Math.max(0.3, len / 3);
+          c.repeat.set(flipX ? -rx : rx, Math.max(0.3, h / 3));
+        }
         return c;
       });
       return new THREE.MeshStandardMaterial({ map: m, emissiveMap: e, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.6, metalness: 0.3, side });
@@ -878,11 +958,11 @@ const Station: React.FC = () => {
     const cylArc = (grp: THREE.Group, cx: number, cz: number, r: number, t0: number, t1: number, y0: number, y1: number) => {
       const m = new THREE.Mesh(
         new THREE.CylinderGeometry(r, r, y1 - y0, Math.max(4, Math.ceil((t1 - t0) * r * 2)), 1, true, t0, t1 - t0),
-        wallMat((t1 - t0) * r, y1 - y0),
+        wallMat((t1 - t0) * r, y1 - y0, THREE.DoubleSide, false, true, y1 - y0 >= 2.5),
       );
       m.position.set(cx, (y0 + y1) / 2, cz);
       grp.add(m);
-      rim(grp, cx, cz, r - 0.05, t0, t1, y0 + 0.9);
+      if (y0 === 0 && y1 >= 2.5) rim(grp, cx, cz, r - 0.05, t0, t1, y0 + 0.9);
     };
     // rounded-rectangle profile: half width hw, height top, corner radius r
     const prof = <P extends THREE.Path>(p: P, hw: number, top: number, r: number, y0 = 0): P => {
@@ -896,6 +976,14 @@ const Station: React.FC = () => {
       return p;
     };
     const archShape = () => prof(new THREE.Shape(), 3, 4.4, 1.2);
+    const frameMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2c30,
+      roughness: 0.5,
+      metalness: 0.4,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
     // doorway on a round room's wall: filler panel + heavy frame so the wall meets the tunnel mouth
     const doorFrame = (grp: THREE.Group, cx: number, cz: number, Rr: number, t: number) => {
       const d = Math.sqrt(Rr * Rr - 9);
@@ -904,11 +992,13 @@ const Station: React.FC = () => {
       g.rotation.y = t;
       const outer = new THREE.Shape([new THREE.Vector2(-3, 0), new THREE.Vector2(3, 0), new THREE.Vector2(3, H), new THREE.Vector2(-3, H)]);
       outer.holes.push(prof(new THREE.Path(), 3, 4.4, 1.2));
-      g.add(new THREE.Mesh(new THREE.ShapeGeometry(outer, 16), wallMat(6, H, THREE.DoubleSide, true)));
+      const filler = new THREE.Mesh(new THREE.ShapeGeometry(outer, 16), wallMat(6, H, THREE.DoubleSide, true, false, false));
+      filler.position.z = -0.02;
+      g.add(filler);
       // both outlines reach below the floor so no coplanar sill across the doorway (it z-fought the floors)
       const fr = prof(new THREE.Shape(), 3.3, 4.7, 1.4, -0.3);
       fr.holes.push(prof(new THREE.Path(), 3, 4.4, 1.2, -0.2));
-      const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(fr, { depth: 0.4, bevelEnabled: false, curveSegments: 10 }), panelGray);
+      const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(fr, { depth: 0.4, bevelEnabled: false, curveSegments: 10 }), frameMat);
       frame.position.z = -0.2;
       g.add(frame);
       for (const sx of [-3.05, 3.05]) {
@@ -991,7 +1081,7 @@ const Station: React.FC = () => {
       const g = new THREE.Group();
       g.position.set((x1 + x2) / 2, 0, (z1 + z2) / 2);
       g.rotation.y = Math.atan2(x2 - x1, z2 - z1);
-      const sm = wallMat(3, 3, THREE.BackSide, true);
+      const sm = wallMat(3, 3, THREE.BackSide, true, false, false);
       const shell = new THREE.Mesh(new THREE.ExtrudeGeometry(archShape(), { depth: len, bevelEnabled: false, curveSegments: 10 }), [new THREE.MeshBasicMaterial({ visible: false }), sm]);
       shell.position.z = -len / 2;
       g.add(shell);
@@ -1285,14 +1375,55 @@ const Station: React.FC = () => {
       floorCable(g, cableMats[1]);
       block(g, 0.55, 2.8, [-0.2, 0], [0.2, 0]);
     };
-    // soft stowage bag with a strap
+    // Industrial sci-fi cargo crate with procedural hazard stripe & stencil texture
+    const crateTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#252830';
+      g.fillRect(0, 0, 256, 256);
+      g.strokeStyle = '#111318';
+      g.lineWidth = 10;
+      g.strokeRect(5, 5, 246, 246);
+      g.strokeStyle = '#3f4450';
+      g.lineWidth = 3;
+      g.strokeRect(20, 20, 216, 216);
+      // Hazard band
+      g.fillStyle = '#eab308';
+      g.fillRect(20, 178, 216, 30);
+      g.fillStyle = '#18181b';
+      for (let x = -20; x < 240; x += 28) {
+        g.beginPath();
+        g.moveTo(20 + x, 178);
+        g.lineTo(34 + x, 178);
+        g.lineTo(22 + x, 208);
+        g.lineTo(8 + x, 208);
+        g.closePath();
+        g.fill();
+      }
+      // Corner rivets
+      g.fillStyle = '#64748b';
+      for (const [rx, ry] of [[32, 32], [224, 32], [32, 224], [224, 224]]) {
+        g.beginPath(); g.arc(rx, ry, 5, 0, Math.PI * 2); g.fill();
+      }
+      // Stencil
+      g.fillStyle = '#cbd5e1';
+      g.font = 'bold 20px monospace';
+      g.textAlign = 'center';
+      g.fillText('CARGO // 04', 128, 96);
+      g.fillStyle = '#f59e0b';
+      g.font = 'bold 13px monospace';
+      g.fillText('ORBITAL SUPPLY', 128, 126);
+      return toTex(c);
+    })();
+    const crateMat = new THREE.MeshStandardMaterial({ map: crateTex, roughness: 0.65, metalness: 0.35 });
     const crate = (grp: THREE.Group, x: number, z: number, s: number, ry: number) => {
       const g = prop(grp, x, z, ry);
-      const m = new THREE.Mesh(new RoundedBoxGeometry(s, s, s, 4, s * 0.15), new THREE.MeshStandardMaterial({ color: 0xe9e7df, roughness: 0.95 }));
+      const m = new THREE.Mesh(new RoundedBoxGeometry(s, s, s, 3, s * 0.08), crateMat);
       m.position.y = s / 2;
       g.add(m);
-      lb(g, s + 0.02, 0.05, s + 0.02, 0, s * 0.7, 0, black);
-      block(g, s * 0.75, s, [0, 0]);
+      lb(g, s + 0.02, 0.05, s + 0.02, 0, s * 0.72, 0, black);
+      block(g, s * 0.72, s, [0, 0]);
     };
     // central workstation island: drum with rack panels, blue rail, gooseneck arm with laptop
     const island = (grp: THREE.Group, x: number, z: number) => {
@@ -1352,12 +1483,68 @@ const Station: React.FC = () => {
         for (let r = 0; r < 4; r++) for (let q = 0; q < 8; q++) g.fillRect(14 + q * 29, 20 + r * 14, 25, 10);
         g.fillRect(100 + Math.sin(t * 1.5) * 70, 170, 50, 7);
         g.fillRect(124 + Math.sin(t * 1.5) * 70, 120 + Math.sin(t * 4) * 20, 7, 7);
-      } else {
-        g.fillStyle = '#2a2d33';
+      } else if (game === 'comms') {
+        // Anti-Bot Firewall & Comms Uplink attract preview
+        g.fillStyle = '#040914';
         g.fillRect(0, 0, 256, 192);
-        g.fillStyle = hex;
-        for (let y = -20; y < 192; y += 30) g.fillRect(126, ((y + t * 90) % 210) - 20, 4, 16);
-        g.fillRect(112 + Math.sin(t * 1.3) * 60, 130, 30, 16);
+        // Descending red spam-bot drones
+        g.fillStyle = '#f43f5e';
+        for (let i = 0; i < 5; i++) {
+          const bx = 36 + i * 44 + Math.sin(t * 2 + i) * 10;
+          const by = 48 + ((t * 24 + i * 19) % 72);
+          g.fillRect(bx - 7, by - 5, 14, 10);
+          g.fillStyle = '#ffffff';
+          g.fillRect(bx - 4, by - 2, 3, 3);
+          g.fillRect(bx + 1, by - 2, 3, 3);
+          g.fillStyle = '#f43f5e';
+        }
+        // Defender turret ship + laser pulses
+        const sx = 128 + Math.sin(t * 2.1) * 74;
+        g.fillStyle = '#22d3ee';
+        g.beginPath();
+        g.moveTo(sx, 144);
+        g.lineTo(sx - 12, 162);
+        g.lineTo(sx + 12, 162);
+        g.closePath();
+        g.fill();
+        g.fillStyle = '#fbbf24';
+        const ly = 140 - ((t * 180) % 90);
+        g.fillRect(sx - 1.5, ly, 3, 12);
+      } else {
+        // Cyber Drift neon circuit preview
+        g.fillStyle = '#0c0e14';
+        g.fillRect(0, 0, 256, 192);
+        // Track asphalt loop
+        g.strokeStyle = '#272a36';
+        g.lineWidth = 28;
+        g.beginPath();
+        g.ellipse(128, 108, 86, 48, 0, 0, Math.PI * 2);
+        g.stroke();
+        // Dashed centerline
+        g.strokeStyle = '#eab308';
+        g.lineWidth = 2;
+        g.setLineDash([8, 8]);
+        g.beginPath();
+        g.ellipse(128, 108, 86, 48, 0, 0, Math.PI * 2);
+        g.stroke();
+        g.setLineDash([]);
+        // Project bay dots
+        g.fillStyle = '#f59e0b';
+        for (const ang of [0.4, 2.2, 3.8, 5.4]) {
+          g.fillRect(128 + Math.cos(ang) * 104 - 4, 108 + Math.sin(ang) * 60 - 4, 8, 8);
+        }
+        // Drifting cyan car
+        const ca = t * 1.4;
+        const cx = 128 + Math.cos(ca) * 86;
+        const cy = 108 + Math.sin(ca) * 48;
+        g.save();
+        g.translate(cx, cy);
+        g.rotate(ca + Math.PI / 2 + 0.25);
+        g.fillStyle = '#38bdf8';
+        g.fillRect(-10, -5, 20, 10);
+        g.fillStyle = '#fbbf24';
+        g.fillRect(-10, -1, 20, 2);
+        g.restore();
       }
       g.fillStyle = 'rgba(0,0,0,0.55)';
       g.fillRect(0, 0, 256, 38);
@@ -1437,10 +1624,60 @@ const Station: React.FC = () => {
     world.add(hubG);
     const D = Math.sqrt(100 - 9); // tunnel mouth distance from hub centre
     const DR = Math.sqrt(81 - 9); // same for the 9m rooms
-    const signAt = [Math.PI / 2 + 0.5, (3 * Math.PI) / 2 + 0.5];
+    // Both signs sit on the north (-z) side of their respective archways so both are clearly visible from spawn
+    const signAt = [Math.PI / 2 + 0.5, (3 * Math.PI) / 2 - 0.5];
     neonNow = '#ffa73d';
     roundRoom(hubG, 0, 0, 10, [Math.PI / 2, (3 * Math.PI) / 2], [], 6);
     island(hubG, 0, 0);
+
+    // Holographic rotating centerpiece above the Hub console island
+    const holoGroup = new THREE.Group();
+    holoGroup.position.set(0, 2.55, 0);
+    const holoCore = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.42, 0),
+      new THREE.MeshBasicMaterial({ color: 0xffb347, wireframe: true, transparent: true, opacity: 0.65, toneMapped: false }),
+    );
+    const holoInner = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.22, 0),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.8, toneMapped: false }),
+    );
+    const holoRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.65, 0.014, 8, 48),
+      new THREE.MeshBasicMaterial({ color: 0xffa73d, transparent: true, opacity: 0.55, toneMapped: false }),
+    );
+    holoRing.rotation.x = Math.PI / 2.6;
+    holoGroup.add(holoCore, holoInner, holoRing);
+    hubG.add(holoGroup);
+    anim.push((t) => {
+      holoGroup.position.y = 2.55 + Math.sin(t * 1.4) * 0.08;
+      holoCore.rotation.y = t * 0.45;
+      holoCore.rotation.x = t * 0.22;
+      holoInner.rotation.y = -t * 0.9;
+      holoRing.rotation.z = t * 0.35;
+    });
+
+    // Subtle floating ambient dust motes across the station rooms
+    const dustCount = 180;
+    const dustPos = new Float32Array(dustCount * 3);
+    for (let i = 0; i < dustCount; i++) {
+      const roomX = i < 70 ? 0 : i < 125 ? 27 : -27;
+      const a = Math.random() * TAU;
+      const rr = Math.random() * 7.5;
+      dustPos[i * 3] = roomX + Math.cos(a) * rr;
+      dustPos[i * 3 + 1] = 0.6 + Math.random() * 3.8;
+      dustPos[i * 3 + 2] = Math.sin(a) * rr;
+    }
+    const dustGeo = new THREE.BufferGeometry();
+    dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+    const dustPts = new THREE.Points(
+      dustGeo,
+      new THREE.PointsMaterial({ color: 0xffe4b5, size: 0.045, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    world.add(dustPts);
+    anim.push((t) => {
+      dustPts.position.y = Math.sin(t * 0.4) * 0.12;
+    });
+
     things.push({
       pos: new THREE.Vector3(0, 1.2, 0),
       label: 'Open Projects Archive',
@@ -1449,17 +1686,17 @@ const Station: React.FC = () => {
         if (p) openProject(p);
       },
     });
-    const sign = (grp: THREE.Group, cx: number, cz: number, r: number, t: number, text: string) => {
+    const sign = (grp: THREE.Group, cx: number, cz: number, r: number, t: number, title: string, subtitle: string, accent = '#ffa73d') => {
       const [x, z, ry] = pol(cx, cz, r, t);
-      place(grp, panel(text, '', 2.8, 0.8, '', '#ffa73d'), x, 2.6, z, ry);
+      place(grp, roomSign(title, subtitle, 2.7, 0.72, accent), x, 2.75, z, ry);
     };
-    sign(hubG, 0, 0, 9.85, signAt[0], 'ARCADE');
-    sign(hubG, 0, 0, 9.85, signAt[1], 'COMMAND DECK');
-    for (const t of [-0.45, 0.45]) consoleDesk(hubG, ...pol(0, 0, 8.9, t), 0xffb347);
-    for (const t of [Math.PI - 0.7, Math.PI + 0.7]) rack(hubG, ...pol(0, 0, 9.2, t));
-    crate(hubG, ...(pol(0, 0, 8.6, 1.0).slice(0, 2) as [number, number]), 1.2, 0.3);
-    crate(hubG, ...(pol(0, 0, 8.7, 1.25).slice(0, 2) as [number, number]), 0.8, 0.9);
-    crate(hubG, ...(pol(0, 0, 8.6, 5.3).slice(0, 2) as [number, number]), 1, -0.4);
+    sign(hubG, 0, 0, 9.8, signAt[0], 'ARCADE →', 'GAMES & COMMS UPLINK', '#ffa73d');
+    sign(hubG, 0, 0, 9.8, signAt[1], '← COMMAND DECK', 'PROJECT ARCHIVES', '#38bdf8');
+    for (const t of [-0.45, 0.45]) consoleDesk(hubG, ...pol(0, 0, 8.75, t), 0xffb347);
+    for (const t of [Math.PI - 0.7, Math.PI + 0.7]) rack(hubG, ...pol(0, 0, 8.85, t));
+    crate(hubG, ...(pol(0, 0, 8.4, 1.0).slice(0, 2) as [number, number]), 1.1, 0.3);
+    crate(hubG, ...(pol(0, 0, 8.5, 1.25).slice(0, 2) as [number, number]), 0.75, 0.9);
+    crate(hubG, ...(pol(0, 0, 8.4, 5.3).slice(0, 2) as [number, number]), 0.95, -0.4);
 
     // --- east: Arcade (round room centred at x=27)
     const aboutG = new THREE.Group();
@@ -1468,24 +1705,25 @@ const Station: React.FC = () => {
     const AC = 27;
     neonNow = '#ffa73d';
     tunnel(aboutG, D, 0, AC - DR, 0);
-    rects.push({ x1: 9, x2: 19, z1: -3, z2: 3 });
+    rects.push({ x1: 9, x2: 19, z1: -2.55, z2: 2.55 });
     roundRoom(aboutG, AC, 0, 9, [(3 * Math.PI) / 2], [[Math.PI / 2, 0.65]]);
-    cabinet(aboutG, ...pol(AC, 0, 8.1, Math.PI - 0.45), 'SNAKE', 0x7fb069, 'snake');
-    cabinet(aboutG, ...pol(AC, 0, 8.1, Math.PI), 'PONG', 0xe0a030, 'pong');
-    cabinet(aboutG, ...pol(AC, 0, 8.1, Math.PI + 0.45), 'BREAKOUT', 0xc8553d, 'breakout');
-    cabinet(aboutG, ...pol(AC, 0, 8.1, Math.PI - 0.9), 'PROJECT MAP', 0x4aa3df, 'drive');
-    for (const t of [0.3, 0.65]) consoleDesk(aboutG, ...pol(AC, 0, 7.9, t), 0xe0a030);
-    for (const t of [5.4, 5.75]) rack(aboutG, ...pol(AC, 0, 8.2, t));
-    crate(aboutG, ...(pol(AC, 0, 7.5, 4.0).slice(0, 2) as [number, number]), 1, 0.5);
+    cabinet(aboutG, ...pol(AC, 0, 7.75, Math.PI - 0.45), 'SNAKE', 0x7fb069, 'snake');
+    cabinet(aboutG, ...pol(AC, 0, 7.75, Math.PI), 'PONG', 0xe0a030, 'pong');
+    cabinet(aboutG, ...pol(AC, 0, 7.75, Math.PI + 0.45), 'BREAKOUT', 0xc8553d, 'breakout');
+    cabinet(aboutG, ...pol(AC, 0, 7.75, Math.PI - 0.9), 'PROJECT MAP', 0x4aa3df, 'drive');
+    cabinet(aboutG, ...pol(AC, 0, 7.75, Math.PI + 0.9), 'COMMS UPLINK', 0x22d3ee, 'comms');
+    for (const t of [0.3, 0.65]) consoleDesk(aboutG, ...pol(AC, 0, 7.7, t), 0xe0a030);
+    for (const t of [5.4, 5.75]) rack(aboutG, ...pol(AC, 0, 7.85, t));
+    crate(aboutG, ...(pol(AC, 0, 7.35, 6.1).slice(0, 2) as [number, number]), 0.95, 0.5);
 
     // --- west: Command deck (round room centred at x=-27)
     const contactG = new THREE.Group();
     contactG.userData.color = 0x8fb85a;
     world.add(contactG);
     const CC = -27;
-    neonNow = '#ffa73d';
+    neonNow = '#38bdf8';
     tunnel(contactG, -D, 0, CC + DR, 0);
-    rects.push({ x1: -19, x2: -9, z1: -3, z2: 3 });
+    rects.push({ x1: -19, x2: -9, z1: -2.55, z2: 2.55 });
     roundRoom(contactG, CC, 0, 9, [Math.PI / 2], [[(3 * Math.PI) / 2, 0.7], [Math.PI, 0.3], [0, 0.3]]);
     island(contactG, CC, 0);
     things.push({
@@ -1496,7 +1734,7 @@ const Station: React.FC = () => {
         if (p) openProject(p);
       },
     });
-    for (const t of [0.6, 0.95, 2.1, 2.5, 3.72, 5.7]) consoleDesk(contactG, ...pol(CC, 0, 7.9, t), 0xffb347);
+    for (const t of [0.6, 0.95, 2.1, 2.5, 3.72, 5.7]) consoleDesk(contactG, ...pol(CC, 0, 7.7, t), 0x38bdf8);
 
     // --- outside the windows: a moon to the west, drifting rocks to the east
     const mc = document.createElement('canvas');
@@ -1607,18 +1845,82 @@ const Station: React.FC = () => {
     const support = (x: number, z: number) => blockers.reduce((m, b) => ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r ? Math.max(m, b.h) : m), 0);
 
     let current: Interactable | null = null;
+    const isModalOpen = () => Boolean(gameRef.current || activeProjectRef.current);
+
+    teleportRef.current = (room) => {
+      active = true;
+      setStarted(true);
+      jumpH = 0;
+      vy = 0;
+      pitch = 0;
+      if (room === 'hub') {
+        pos.set(0, EYE, 6);
+        yaw = 0;
+      } else if (room === 'arcade') {
+        pos.set(27, EYE, 3.5);
+        yaw = 0;
+      } else {
+        pos.set(-27, EYE, 4.5);
+        yaw = 0;
+      }
+      setCurrentRoom(room);
+    };
+
     const onKey = (e: KeyboardEvent) => {
       stationAudio.resume();
-      if (e.type === 'keydown' && (gameRef.current || activeProjectRef.current)) return; // the arcade or project modal owns the keyboard
+      if (e.type === 'keydown' && isModalOpen()) return;
       keys[e.code] = e.type === 'keydown';
       if (active && e.code === 'Space') e.preventDefault();
       if (e.type === 'keydown' && e.code === 'KeyE') want.current.act = true;
     };
     const onMouse = (e: MouseEvent) => {
-      if (!isLocked) return;
+      if (!isLocked || isModalOpen()) return;
       yaw -= e.movementX * 0.002;
       pitch = Math.max(-1.4, Math.min(1.4, pitch - e.movementY * 0.002));
     };
+
+    // Click-and-drag look fallback when Pointer Lock is not active
+    let dragPointerId: number | null = null;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragLastX = 0;
+    let dragLastY = 0;
+    let didDrag = false;
+
+    const onCanvasPointerDown = (e: PointerEvent) => {
+      if (touchRef.current || isLocked || !active || isModalOpen() || e.button !== 0) return;
+      dragPointerId = e.pointerId;
+      dragStartX = dragLastX = e.clientX;
+      dragStartY = dragLastY = e.clientY;
+      didDrag = false;
+      try {
+        renderer.domElement.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore synthetic events
+      }
+    };
+    const onCanvasPointerMove = (e: PointerEvent) => {
+      if (dragPointerId !== e.pointerId || isLocked || isModalOpen()) return;
+      const dx = e.clientX - dragLastX;
+      const dy = e.clientY - dragLastY;
+      dragLastX = e.clientX;
+      dragLastY = e.clientY;
+      if (Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY) > 4) {
+        didDrag = true;
+      }
+      if (didDrag) {
+        yaw -= dx * 0.0035;
+        pitch = Math.max(-1.4, Math.min(1.4, pitch - dy * 0.0035));
+      }
+    };
+    const onCanvasPointerUp = (e: PointerEvent) => {
+      if (dragPointerId !== e.pointerId) return;
+      dragPointerId = null;
+      if (!didDrag && !touchRef.current && !isModalOpen()) {
+        doLock();
+      }
+    };
+
     const onLock = () => {
       isLocked = document.pointerLockElement === renderer.domElement;
       setLocked(isLocked);
@@ -1627,7 +1929,7 @@ const Station: React.FC = () => {
       active = true;
       setStarted(true);
       stationAudio.resume();
-      if (touch) {
+      if (touchRef.current) {
         isLocked = true;
         setLocked(true);
       } else (renderer.domElement.requestPointerLock() as unknown as Promise<void> | undefined)?.catch?.(() => {});
@@ -1642,7 +1944,10 @@ const Station: React.FC = () => {
     window.addEventListener('mousemove', onMouse);
     window.addEventListener('resize', onResize);
     document.addEventListener('pointerlockchange', onLock);
-    renderer.domElement.addEventListener('click', () => !touch && doLock());
+    renderer.domElement.addEventListener('pointerdown', onCanvasPointerDown);
+    renderer.domElement.addEventListener('pointermove', onCanvasPointerMove);
+    renderer.domElement.addEventListener('pointerup', onCanvasPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onCanvasPointerUp);
     // exposed so the start overlay can lock too
     (mount as HTMLDivElement & { lock?: () => void }).lock = doLock;
 
@@ -1652,11 +1957,12 @@ const Station: React.FC = () => {
     let jumpH = 0;
     let raf = 0;
     let lastPrompt = '';
+    let lastRoom: 'hub' | 'arcade' | 'command' = 'hub';
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = clock.elapsedTime;
-      if (active && !gameRef.current) {
+      if (active && !isModalOpen()) {
         const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - joy.current.y;
         const s = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.current.x;
         const len = Math.max(1, Math.hypot(f, s));
@@ -1679,6 +1985,13 @@ const Station: React.FC = () => {
         if (movedX) pos.x += dx;
         if (movedZ) pos.z += dz;
         pos.y = EYE + jumpH + (vy === 0 && (f || s) ? Math.sin(t * 9) * 0.03 : 0);
+
+        // Track active wing for HUD indicator
+        const nextRoom: 'hub' | 'arcade' | 'command' = pos.x > 13 ? 'arcade' : pos.x < -13 ? 'command' : 'hub';
+        if (nextRoom !== lastRoom) {
+          lastRoom = nextRoom;
+          setCurrentRoom(nextRoom);
+        }
 
         // Walking footsteps audio
         if (vy === 0 && jumpH <= sup + 0.05 && (Math.abs(f) > 0.1 || Math.abs(s) > 0.1) && (movedX || movedZ)) {
@@ -1703,7 +2016,7 @@ const Station: React.FC = () => {
         }
       }
       const p = current ? current.label : '';
-      if (want.current.act && current && active && !gameRef.current) current.action();
+      if (want.current.act && current && active && !isModalOpen()) current.action();
       want.current.act = false;
       if (p !== lastPrompt) setPrompt((lastPrompt = p));
       renderer.render(scene, camera);
@@ -1713,23 +2026,32 @@ const Station: React.FC = () => {
 
     return () => {
       cancelAnimationFrame(raf);
+      teleportRef.current = null;
       stationAudio.stop();
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       window.removeEventListener('mousemove', onMouse);
       window.removeEventListener('resize', onResize);
       document.removeEventListener('pointerlockchange', onLock);
+      renderer.domElement.removeEventListener('pointerdown', onCanvasPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onCanvasPointerMove);
+      renderer.domElement.removeEventListener('pointerup', onCanvasPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onCanvasPointerUp);
       renderer.dispose();
       renderer.domElement.remove();
     };
   }, []);
 
+  const anyOverlayOpen = Boolean(game || activeProject);
+
   return (
     <div className="fixed inset-0 bg-black text-white">
-      <div ref={mountRef} className="absolute inset-0" />
+      <div ref={mountRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,transparent_50%,rgba(0,0,0,0.6)_100%)]" />
-      {locked && <div className="absolute top-1/2 left-1/2 w-1.5 h-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80 pointer-events-none" />}
-      {prompt && (
+      {locked && !anyOverlayOpen && (
+        <div className="absolute top-1/2 left-1/2 w-1.5 h-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80 pointer-events-none" />
+      )}
+      {prompt && !anyOverlayOpen && (
         <div
           className="absolute z-20 bottom-28 sm:bottom-24 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full bg-black/90 border-2 border-amber-400 text-amber-300 shadow-[0_0_25px_rgba(245,158,11,0.5)] active:scale-95 active:bg-amber-400/20 transition-all text-xs sm:text-sm font-mono font-bold tracking-wider select-none cursor-pointer flex items-center gap-2 whitespace-nowrap"
           onPointerDown={(e) => {
@@ -1738,28 +2060,20 @@ const Station: React.FC = () => {
           }}
         >
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
-          <span>{touch ? `TAP: ${prompt}` : `PRESS E: ${prompt}`}</span>
+          <span>{showTouchPad ? `TAP: ${prompt}` : `PRESS E: ${prompt}`}</span>
         </div>
       )}
-      {touch && locked && !game && (
+      {started && showTouchPad && !anyOverlayOpen && (
         <>
-          {/* fixed joystick: always visible, bottom left */}
+          {/* Right half touch-drag look pad */}
           <div
-            className="absolute left-6 bottom-8 w-32 h-32 rounded-full border-2 border-amber-300/50 bg-black/30 touch-none"
+            className="absolute right-0 top-14 w-1/2 bottom-0 z-10 touch-none"
             onPointerDown={(e) => {
-              e.currentTarget.setPointerCapture(e.pointerId);
-              moveStick(e);
-            }}
-            onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && moveStick(e)}
-            onPointerUp={resetStick}
-            onPointerCancel={resetStick}
-          >
-            <div ref={knob} className="absolute left-1/2 top-1/2 -ml-6 -mt-6 w-12 h-12 rounded-full bg-amber-300/60 pointer-events-none" />
-          </div>
-          <div
-            className="absolute right-0 top-0 w-1/2 h-full touch-none"
-            onPointerDown={(e) => {
-              e.currentTarget.setPointerCapture(e.pointerId);
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId);
+              } catch {
+                // ignore
+              }
               stick.current = { x: e.clientX, y: e.clientY };
             }}
             onPointerMove={(e) => {
@@ -1769,13 +2083,38 @@ const Station: React.FC = () => {
               stick.current = { x: e.clientX, y: e.clientY };
             }}
           />
+          {/* Left virtual movement joystick */}
+          <div
+            className="absolute left-5 bottom-7 z-20 w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 border-amber-300/50 bg-black/45 backdrop-blur-sm touch-none shadow-[0_0_20px_rgba(245,158,11,0.25)]"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId);
+              } catch {
+                // ignore
+              }
+              moveStick(e);
+            }}
+            onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && moveStick(e)}
+            onPointerUp={resetStick}
+            onPointerCancel={resetStick}
+            onLostPointerCapture={resetStick}
+          >
+            <div
+              ref={knob}
+              className="absolute left-1/2 top-1/2 -ml-6 -mt-6 w-12 h-12 rounded-full border border-amber-200 bg-amber-400/70 shadow-[0_0_14px_rgba(245,158,11,0.6)] pointer-events-none"
+            />
+          </div>
           <button
-            className="absolute right-6 bottom-10 w-20 h-20 rounded-full bg-amber-300/25 border-2 border-amber-300/60 text-sm touch-none select-none"
-            onPointerDown={() => (want.current.jump = true)}
+            className="absolute right-5 bottom-9 z-20 w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-amber-300/20 border-2 border-amber-300/60 backdrop-blur-sm text-xs sm:text-sm font-mono font-bold text-amber-200 touch-none select-none active:scale-95 active:bg-amber-300/40"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              want.current.jump = true;
+            }}
             onPointerUp={() => (want.current.jump = false)}
             onPointerCancel={() => (want.current.jump = false)}
           >
-            Jump
+            JUMP
           </button>
         </>
       )}
@@ -1794,29 +2133,72 @@ const Station: React.FC = () => {
         onSelectProject={setActiveProject}
       />
       {started && !game && (
-        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
-          <button
-            className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-3 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
-            onClick={() => {
-              const muted = stationAudio.toggleMute();
-              setIsMuted(muted);
-            }}
-            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-          >
-            {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
-            <span className="hidden sm:inline">{isMuted ? 'Muted' : 'Audio ON'}</span>
-          </button>
+        <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between gap-2 pointer-events-none">
+          {/* Quick-Travel Wing Selector + Touch Controls Toggle */}
+          <div className="flex items-center gap-1.5 pointer-events-auto min-w-0">
+            <div className="flex items-center rounded-full border border-amber-400/35 bg-black/75 backdrop-blur p-0.5 text-[11px] font-mono shadow-lg">
+              {(
+                [
+                  { id: 'command', label: 'Deck', full: 'Command' },
+                  { id: 'hub', label: 'Hub', full: 'Hub' },
+                  { id: 'arcade', label: 'Arcade', full: 'Arcade' },
+                ] as const
+              ).map((wing) => (
+                <button
+                  key={wing.id}
+                  onClick={() => teleportRef.current?.(wing.id)}
+                  className={`px-2 sm:px-2.5 py-1 rounded-full transition cursor-pointer ${
+                    currentRoom === wing.id
+                      ? 'bg-amber-400 text-black font-bold'
+                      : 'text-amber-200/80 hover:text-amber-200'
+                  }`}
+                >
+                  <span className="sm:hidden">{wing.label}</span>
+                  <span className="hidden sm:inline">{wing.full}</span>
+                </button>
+              ))}
+            </div>
 
-          <button
-            className="flex items-center gap-2 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-3.5 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
-            onClick={() => {
-              const p = projects[0] || (import.meta.env.PROD ? null : mockProjects[0]);
-              if (p) openProject(p);
-            }}
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span>Projects ({projects.length})</span>
-          </button>
+            <button
+              onClick={() => setShowTouchPad((v) => !v)}
+              className={`flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-mono transition cursor-pointer backdrop-blur shadow-lg ${
+                showTouchPad
+                  ? 'border-amber-400 bg-amber-400/20 text-amber-300'
+                  : 'border-amber-400/35 bg-black/75 text-zinc-400 hover:text-amber-200'
+              }`}
+              title="Toggle On-Screen 3D Controls"
+            >
+              <Gamepad2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Pad</span>
+            </button>
+          </div>
+
+          {/* Right Action Pills */}
+          <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+            <button
+              className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-2.5 sm:px-3 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
+              onClick={() => {
+                const muted = stationAudio.toggleMute();
+                setIsMuted(muted);
+              }}
+              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+            >
+              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+              <span className="hidden md:inline">{isMuted ? 'Muted' : 'Audio ON'}</span>
+            </button>
+
+            <button
+              className="flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-black/75 backdrop-blur px-2.5 sm:px-3.5 py-1.5 text-xs font-mono text-amber-300 hover:bg-amber-400/20 hover:border-amber-400 transition cursor-pointer shadow-lg"
+              onClick={() => {
+                const p = projects[0] || (import.meta.env.PROD ? null : mockProjects[0]);
+                if (p) openProject(p);
+              }}
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="hidden sm:inline">Projects ({projects.length})</span>
+              <span className="sm:hidden">{projects.length}</span>
+            </button>
+          </div>
         </div>
       )}
       {!(built && projectsDone) && (
@@ -1846,12 +2228,12 @@ const Station: React.FC = () => {
           </div>
         </div>
       )}
-      {started && !locked && !game && !touch && (
+      {started && !locked && !anyOverlayOpen && !showTouchPad && (
         <button
-          className="absolute left-1/2 top-6 -translate-x-1/2 rounded-full border border-amber-300/60 bg-black/70 px-5 py-2 text-sm text-amber-200"
+          className="hidden md:flex items-center gap-2 absolute left-1/2 bottom-5 -translate-x-1/2 z-20 rounded-full border border-amber-300/45 bg-black/75 backdrop-blur px-4 py-1.5 text-xs font-mono text-amber-200/90 hover:border-amber-300 hover:bg-amber-400/15 transition cursor-pointer"
           onClick={() => (mountRef.current as (HTMLDivElement & { lock?: () => void }) | null)?.lock?.()}
         >
-          Click to look around (WASD still works)
+          Click or drag to look · WASD to move
         </button>
       )}
     </div>

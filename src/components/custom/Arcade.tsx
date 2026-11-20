@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Project } from '@/types/Project';
 import { getProjectImageUrl } from '@/lib/projectUtils';
 import stationAudio from '@/lib/stationAudio';
-import { Maximize, Minimize, RefreshCw, Gamepad2 } from 'lucide-react';
+import { Maximize, Minimize, RefreshCw, Gamepad2, Mail, ShieldCheck, ShieldAlert, Send, CheckCircle2, AlertCircle } from 'lucide-react';
 
 type Ctx = { projects: Project[]; open: (p: Project) => void };
 type Dims = {
@@ -20,6 +20,8 @@ type Game = {
   score: () => string;
   over: () => boolean;
   isMenuOpen?: () => boolean;
+  setMenuOpen?: (open: boolean) => void;
+  getBotsDestroyed?: () => number;
   getNearProject?: () => string | null;
   getGameOverText?: () => { title: string; subtitle: string };
 };
@@ -647,7 +649,7 @@ function generateProceduralTrack(archetype: TrackArchetype, projects: Project[])
         (2 * p1.y +
           (-p0.y + p2.y) * t +
           (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-          (-p0.y + 3 * p1.x - 3 * p2.y + p3.y) * t3);
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
       points.push({ x, y });
     }
   }
@@ -768,9 +770,12 @@ const drive = (
   const npcColors = ['#f59e0b', '#ec4899', '#10b981', '#8b5cf6', '#06b6d4'];
 
   const initTrackItems = () => {
+    const startClearance = 18;
+    const isNearStart = (idx: number) => idx < startClearance || idx > trackPoints.length - startClearance;
+
     stars = [];
     const starInterval = Math.floor(trackPoints.length / 28);
-    for (let i = 0; i < trackPoints.length; i += starInterval) {
+    for (let i = startClearance; i < trackPoints.length - startClearance; i += starInterval) {
       const tp = trackPoints[i];
       stars.push({
         id: i,
@@ -782,7 +787,7 @@ const drive = (
     }
 
     nitroPods = [];
-    for (let i = 0; i < trackPoints.length; i += Math.floor(trackPoints.length / 8)) {
+    for (let i = startClearance; i < trackPoints.length - startClearance; i += Math.floor(trackPoints.length / 8)) {
       const tp = trackPoints[i];
       nitroPods.push({
         id: i,
@@ -795,7 +800,7 @@ const drive = (
 
     cones = [];
     trackPoints.forEach((tp, i) => {
-      if (tp.isApex && i % 18 === 0) {
+      if (tp.isApex && i % 18 === 0 && !isNearStart(i)) {
         cones.push({
           x: tp.x + tp.nx * 44,
           y: tp.y + tp.ny * 44,
@@ -1649,16 +1654,19 @@ const drive = (
         c.lineWidth = isNear ? 2 : 1;
         c.strokeRect(s.x - 44, s.y - 44, 88, 88);
 
+        const rawTitle = s.p.title;
+        const shortTitle = rawTitle.length > 17 ? `${rawTitle.slice(0, 16).trimEnd()}…` : rawTitle;
+        const labelW = 148;
         c.fillStyle = 'rgba(9, 9, 11, 0.94)';
-        c.fillRect(s.x - 60, s.y + 48, 120, 24);
+        c.fillRect(s.x - labelW / 2, s.y + 48, labelW, 24);
         c.strokeStyle = isNear ? '#fbbf24' : '#52525b';
         c.lineWidth = 1;
-        c.strokeRect(s.x - 60, s.y + 48, 120, 24);
+        c.strokeRect(s.x - labelW / 2, s.y + 48, labelW, 24);
 
         c.fillStyle = isNear ? '#fbbf24' : seen.has(s.p.id) ? '#34d399' : '#e4e4e7';
         c.font = 'bold 11px monospace';
         c.textAlign = 'center';
-        c.fillText(`${seen.has(s.p.id) ? '✓ ' : ''}${s.p.title.slice(0, 14)}`, s.x, s.y + 64);
+        c.fillText(`${seen.has(s.p.id) ? '✓ ' : ''}${shortTitle}`, s.x, s.y + 64, labelW - 10);
       });
 
       stars.forEach((s) => {
@@ -1895,24 +1903,58 @@ const drive = (
           c.fillText(`DRIFT ${car.driftCombo.toFixed(1)}x`, hudX + 150, hudY + 22);
         }
 
-        const mw = Math.min(140, Math.max(90, W * 0.18));
+        const mw = Math.min(148, Math.max(96, W * 0.18));
         const mh = (mw * WH) / WW;
         const mmX = W - mw - 16;
         const mmY = 54;
 
+        // Compute normalized bounding box across track + project bays so minimap never overflows
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let i = 0; i < trackPoints.length; i += 4) {
+          const pt = trackPoints[i];
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        spots.forEach((s) => {
+          if (s.x < minX) minX = s.x;
+          if (s.x > maxX) maxX = s.x;
+          if (s.y < minY) minY = s.y;
+          if (s.y > maxY) maxY = s.y;
+        });
+        const pad = 160;
+        minX -= pad;
+        maxX += pad;
+        minY -= pad;
+        maxY += pad;
+        const spanX = Math.max(1, maxX - minX);
+        const spanY = Math.max(1, maxY - minY);
+        const innerPad = 6;
+        const scale = Math.min((mw - innerPad * 2) / spanX, (mh - innerPad * 2) / spanY);
+        const offX = mmX + (mw - spanX * scale) / 2;
+        const offY = mmY + (mh - spanY * scale) / 2;
+        const toMiniX = (wx: number) => offX + (wx - minX) * scale;
+        const toMiniY = (wy: number) => offY + (wy - minY) * scale;
+
         c.fillStyle = 'rgba(0,0,0,0.85)';
         c.fillRect(mmX, mmY, mw, mh);
-        c.strokeStyle = '#e0a030';
-        c.lineWidth = 1;
-        c.strokeRect(mmX, mmY, mw, mh);
+
+        c.save();
+        c.beginPath();
+        c.rect(mmX + 1, mmY + 1, mw - 2, mh - 2);
+        c.clip();
 
         c.strokeStyle = 'rgba(255,255,255,0.35)';
         c.lineWidth = 2.5;
         c.beginPath();
         for (let i = 0; i < trackPoints.length; i += 4) {
           const pt = trackPoints[i];
-          const mx = mmX + (pt.x / WW) * mw;
-          const my = mmY + (pt.y / WH) * mh;
+          const mx = toMiniX(pt.x);
+          const my = toMiniY(pt.y);
           if (i === 0) c.moveTo(mx, my);
           else c.lineTo(mx, my);
         }
@@ -1921,16 +1963,16 @@ const drive = (
 
         spots.forEach((s) => {
           c.fillStyle = seen.has(s.p.id) ? '#10b981' : '#e0a030';
-          c.fillRect(mmX + (s.x / WW) * mw - 3, mmY + (s.y / WH) * mh - 3, 6, 6);
+          c.fillRect(toMiniX(s.x) - 3, toMiniY(s.y) - 3, 6, 6);
         });
 
         npcCars.forEach((npc) => {
           c.fillStyle = npc.color;
-          c.fillRect(mmX + (npc.x / WW) * mw - 2, mmY + (npc.y / WH) * mh - 2, 4, 4);
+          c.fillRect(toMiniX(npc.x) - 2, toMiniY(npc.y) - 2, 4, 4);
         });
 
-        const pmX = mmX + (car.x / WW) * mw;
-        const pmY = mmY + (car.y / WH) * mh;
+        const pmX = toMiniX(car.x);
+        const pmY = toMiniY(car.y);
         c.fillStyle = '#38bdf8';
         c.fillRect(pmX - 2.5, pmY - 2.5, 5, 5);
         c.strokeStyle = '#38bdf8';
@@ -1939,6 +1981,11 @@ const drive = (
         c.moveTo(pmX, pmY);
         c.lineTo(pmX + Math.cos(car.a) * 7, pmY + Math.sin(car.a) * 7);
         c.stroke();
+        c.restore();
+
+        c.strokeStyle = '#e0a030';
+        c.lineWidth = 1;
+        c.strokeRect(mmX, mmY, mw, mh);
 
         if (!touch) {
           c.fillStyle = 'rgba(255, 255, 255, 0.45)';
@@ -2105,11 +2152,430 @@ const drive = (
   };
 };
 
+// ============================================================================
+// GAME 5: COMMS UPLINK // ANTI-BOT FIREWALL DEFENDER
+// ============================================================================
+const comms = (k: Keys, _ctx: Ctx, getDims: () => Dims): Game => {
+  let init = false;
+  let px = 400;
+  let mode: 'play' | 'menu' = 'play';
+  let botsDestroyed = 0;
+  let score = 0;
+  let lives = 3;
+  let autoUnlockedOnce = false;
+  let fireCooldown = 0;
+  let spawnTimer = 0.6;
+  let timeElapsed = 0;
+
+  const BOT_LABELS = ['SPAM-BOT', 'SCRAPER', 'CRAWLER', 'PHISH-AI', 'SPAM-LLM', 'AD-DRONE'];
+  const BOT_COLORS = ['#f43f5e', '#fb923c', '#e879f9', '#facc15'];
+
+  let lasers: { x: number; y: number; vy: number }[] = [];
+  let bots: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    w: number;
+    h: number;
+    label: string;
+    color: string;
+    phase: number;
+  }[] = [];
+  let particles: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    color: string;
+    life: number;
+    maxLife: number;
+    r: number;
+  }[] = [];
+  let popups: { text: string; x: number; y: number; color: string; alpha: number }[] = [];
+
+  const getMenuBtnRect = (W: number) => {
+    const bw = Math.min(310, W - 32);
+    const bh = 36;
+    const bx = (W - bw) / 2;
+    const by = 48;
+    return { bx, by, bw, bh };
+  };
+
+  const spawnBot = (W: number) => {
+    const w = 66;
+    const h = 28;
+    const margin = 50;
+    const x = margin + Math.random() * Math.max(40, W - margin * 2);
+    const idx = Math.floor(Math.random() * BOT_LABELS.length);
+    bots.push({
+      x,
+      y: 96,
+      vx: (Math.random() - 0.5) * 90,
+      vy: 55 + Math.random() * 45 + Math.min(60, botsDestroyed * 3),
+      w,
+      h,
+      label: BOT_LABELS[idx],
+      color: BOT_COLORS[idx % BOT_COLORS.length],
+      phase: Math.random() * Math.PI * 2,
+    });
+  };
+
+  const fireLaser = (shipX: number, shipY: number) => {
+    lasers.push({ x: shipX - 10, y: shipY - 14, vy: -640 });
+    lasers.push({ x: shipX + 10, y: shipY - 14, vy: -640 });
+  };
+
+  const restart = () => {
+    const { W } = getDims();
+    px = W / 2;
+    lives = 3;
+    score = 0;
+    lasers = [];
+    bots = [];
+    particles = [];
+    popups = [];
+  };
+
+  return {
+    score: () =>
+      mode === 'menu'
+        ? `COMMS MENU · ${botsDestroyed} BOTS BLOCKED`
+        : `BOTS BLOCKED: ${botsDestroyed}/3  ·  SCORE: ${score}  ·  ♥${lives}`,
+    over: () => lives <= 0 && mode === 'play',
+    isMenuOpen: () => mode === 'menu',
+    setMenuOpen: (open: boolean) => {
+      mode = open ? 'menu' : 'play';
+    },
+    getBotsDestroyed: () => botsDestroyed,
+    getGameOverText: () => ({
+      title: 'FIREWALL BREACHED',
+      subtitle: `SPAM-BOTS BLOCKED: ${botsDestroyed} · SCORE: ${score}`,
+    }),
+    act: () => {
+      if (lives <= 0 && mode === 'play') {
+        restart();
+        return;
+      }
+      mode = mode === 'menu' ? 'play' : 'menu';
+      stationAudio.playCoinPickup();
+    },
+    onKeyDown: (code: string) => {
+      if (mode === 'menu') {
+        if (code === 'Escape') {
+          mode = 'play';
+          return true;
+        }
+        return false;
+      }
+      if (code === 'KeyM' || code === 'KeyE') {
+        mode = 'menu';
+        stationAudio.playCoinPickup();
+        return true;
+      }
+      return false;
+    },
+    onClick: (cx: number, cy: number) => {
+      if (mode === 'menu') return;
+      if (lives <= 0) {
+        restart();
+        return;
+      }
+      const { W, H, touch } = getDims();
+      const { bx, by, bw, bh } = getMenuBtnRect(W);
+      if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
+        mode = 'menu';
+        stationAudio.playCoinPickup();
+        return;
+      }
+      const shipY = H - (touch ? 150 : 48);
+      px = Math.max(36, Math.min(W - 36, cx));
+      fireLaser(px, shipY);
+    },
+    step(dt: number) {
+      const { W, H, touch, joy } = getDims();
+      if (!init) {
+        px = W / 2;
+        for (let i = 0; i < 3; i++) spawnBot(W);
+        init = true;
+      }
+      timeElapsed += dt;
+      if (mode === 'menu' || lives <= 0) return;
+
+      const shipY = H - (touch ? 150 : 48);
+
+      // Steering via Analog Joystick or Keyboard
+      let dir = (right(k) ? 1 : 0) - (left(k) ? 1 : 0);
+      if (joy && Math.abs(joy.x) > 0.08) {
+        dir = joy.x;
+      }
+      px = Math.max(36, Math.min(W - 36, px + dir * 540 * dt));
+
+      // Auto-fire + manual rapid fire
+      fireCooldown -= dt;
+      const wantFire = driftKey(k) || up(k) || Math.abs(dir) > 0.05;
+      if (fireCooldown <= 0 && (wantFire || bots.length > 0)) {
+        fireLaser(px, shipY);
+        fireCooldown = driftKey(k) || up(k) ? 0.16 : 0.28;
+      }
+
+      // Spawn spam-bots
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        if (bots.length < 7) spawnBot(W);
+        spawnTimer = Math.max(0.55, 1.35 - botsDestroyed * 0.04);
+      }
+
+      // Update lasers
+      for (let i = lasers.length - 1; i >= 0; i--) {
+        lasers[i].y += lasers[i].vy * dt;
+        if (lasers[i].y < 80) {
+          lasers.splice(i, 1);
+        }
+      }
+
+      // Update spam-bots & collisions
+      for (let i = bots.length - 1; i >= 0; i--) {
+        const b = bots[i];
+        b.x += (b.vx + Math.sin(timeElapsed * 2.5 + b.phase) * 45) * dt;
+        b.y += b.vy * dt;
+
+        if (b.x < b.w / 2 + 16) {
+          b.x = b.w / 2 + 16;
+          b.vx = Math.abs(b.vx);
+        } else if (b.x > W - b.w / 2 - 16) {
+          b.x = W - b.w / 2 - 16;
+          b.vx = -Math.abs(b.vx);
+        }
+
+        // Check laser hits
+        let hit = false;
+        for (let j = lasers.length - 1; j >= 0; j--) {
+          const l = lasers[j];
+          if (
+            l.x >= b.x - b.w / 2 - 4 &&
+            l.x <= b.x + b.w / 2 + 4 &&
+            l.y >= b.y - b.h / 2 - 4 &&
+            l.y <= b.y + b.h / 2 + 4
+          ) {
+            lasers.splice(j, 1);
+            hit = true;
+            break;
+          }
+        }
+
+        if (hit) {
+          botsDestroyed++;
+          score += 100;
+          stationAudio.playCoinPickup();
+          for (let p = 0; p < 12; p++) {
+            const ang = Math.random() * Math.PI * 2;
+            const spd = 40 + Math.random() * 140;
+            particles.push({
+              x: b.x,
+              y: b.y,
+              vx: Math.cos(ang) * spd,
+              vy: Math.sin(ang) * spd,
+              color: b.color,
+              life: 0.4,
+              maxLife: 0.4,
+              r: 2 + Math.random() * 3,
+            });
+          }
+          popups.push({
+            text: `BLOCKED ${b.label}! +100`,
+            x: b.x,
+            y: b.y,
+            color: '#22d3ee',
+            alpha: 1,
+          });
+          bots.splice(i, 1);
+
+          // Automatically unlock & pop open the contact menu once 3 spam-bots are destroyed
+          if (botsDestroyed >= 3 && !autoUnlockedOnce) {
+            autoUnlockedOnce = true;
+            stationAudio.playDriftBonus();
+            popups.push({
+              text: 'HUMAN VERIFIED! UPLINK UNLOCKED',
+              x: W / 2,
+              y: H / 2,
+              color: '#34d399',
+              alpha: 1.2,
+            });
+            mode = 'menu';
+          }
+          continue;
+        }
+
+        // Reached the comms relay defense line
+        if (b.y + b.h / 2 >= shipY - 6) {
+          bots.splice(i, 1);
+          lives--;
+          stationAudio.playCarBump();
+          popups.push({
+            text: 'SPAM BREACH! -1 ♥',
+            x: b.x,
+            y: shipY - 24,
+            color: '#f43f5e',
+            alpha: 1,
+          });
+        }
+      }
+
+      // Particles & popups
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+        pt.life -= dt;
+        if (pt.life <= 0) particles.splice(i, 1);
+      }
+      for (let i = popups.length - 1; i >= 0; i--) {
+        popups[i].y -= 32 * dt;
+        popups[i].alpha -= dt * 0.9;
+        if (popups[i].alpha <= 0) popups.splice(i, 1);
+      }
+    },
+    draw(c: CanvasRenderingContext2D) {
+      const { W, H, touch } = getDims();
+      const shipY = H - (touch ? 150 : 48);
+
+      // Cyber grid backdrop
+      c.strokeStyle = 'rgba(34, 211, 238, 0.06)';
+      c.lineWidth = 1;
+      c.beginPath();
+      for (let x = 0; x < W; x += 48) {
+        c.moveTo(x, 0);
+        c.lineTo(x, H);
+      }
+      for (let y = 0; y < H; y += 48) {
+        c.moveTo(0, y);
+        c.lineTo(W, y);
+      }
+      c.stroke();
+
+      // Top In-Game Contact Menu Trigger Button (Available immediately!)
+      const { bx, by, bw, bh } = getMenuBtnRect(W);
+      const verified = botsDestroyed >= 3;
+      neon(c, verified ? '#10b981' : '#22d3ee', 10);
+      c.fillStyle = verified ? 'rgba(6, 78, 59, 0.88)' : 'rgba(8, 51, 68, 0.88)';
+      c.fillRect(bx, by, bw, bh);
+      c.shadowBlur = 0;
+      c.strokeStyle = verified ? '#34d399' : '#22d3ee';
+      c.lineWidth = 2;
+      c.strokeRect(bx, by, bw, bh);
+
+      c.fillStyle = '#ffffff';
+      c.font = 'bold 12px monospace';
+      c.textAlign = 'center';
+      c.fillText(
+        verified
+          ? '✉ FIREWALL CLEAR — OPEN CONTACT MENU [E / TAP]'
+          : `✉ OPEN CONTACT MENU [E / TAP] · OR BLAST ${Math.max(0, 3 - botsDestroyed)} MORE BOTS`,
+        bx + bw / 2,
+        by + 22
+      );
+
+      // Defense firewall line
+      c.strokeStyle = 'rgba(34, 211, 238, 0.28)';
+      c.setLineDash([8, 8]);
+      c.beginPath();
+      c.moveTo(20, shipY + 18);
+      c.lineTo(W - 20, shipY + 18);
+      c.stroke();
+      c.setLineDash([]);
+
+      // Draw lasers
+      neon(c, '#fbbf24', 10);
+      lasers.forEach((l) => {
+        c.fillRect(l.x - 2, l.y - 8, 4, 16);
+      });
+
+      // Draw Spam-Bot drones
+      bots.forEach((b) => {
+        neon(c, b.color, 10);
+        c.fillStyle = '#090d16';
+        c.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+        c.strokeStyle = b.color;
+        c.lineWidth = 2;
+        c.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+        c.shadowBlur = 0;
+
+        // Antennae
+        c.beginPath();
+        c.moveTo(b.x - 14, b.y - b.h / 2);
+        c.lineTo(b.x - 20, b.y - b.h / 2 - 7);
+        c.moveTo(b.x + 14, b.y - b.h / 2);
+        c.lineTo(b.x + 20, b.y - b.h / 2 - 7);
+        c.stroke();
+
+        c.fillStyle = '#ffffff';
+        c.font = 'bold 10px monospace';
+        c.textAlign = 'center';
+        c.fillText(b.label, b.x, b.y + 4);
+      });
+
+      // Draw explosion particles
+      particles.forEach((pt) => {
+        c.save();
+        c.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+        neon(c, pt.color, 8);
+        c.beginPath();
+        c.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+        c.fill();
+        c.restore();
+      });
+
+      // Draw Defender Turret Ship
+      c.save();
+      c.translate(px, shipY);
+      neon(c, '#22d3ee', 14);
+      c.beginPath();
+      c.moveTo(0, -18);
+      c.lineTo(-22, 12);
+      c.lineTo(-8, 7);
+      c.lineTo(0, 14);
+      c.lineTo(8, 7);
+      c.lineTo(22, 12);
+      c.closePath();
+      c.fill();
+
+      c.fillStyle = '#fbbf24';
+      c.fillRect(-12, -12, 3, 8);
+      c.fillRect(9, -12, 3, 8);
+      c.restore();
+
+      // Popups
+      popups.forEach((p) => {
+        c.save();
+        c.globalAlpha = Math.max(0, Math.min(1, p.alpha));
+        c.fillStyle = p.color;
+        c.font = 'bold 13px monospace';
+        c.textAlign = 'center';
+        c.fillText(p.text, p.x, p.y);
+        c.restore();
+      });
+
+      if (!touch && mode === 'play') {
+        c.fillStyle = 'rgba(255, 255, 255, 0.45)';
+        c.font = '11px monospace';
+        c.textAlign = 'center';
+        c.fillText(
+          'A/D or ←/→: STEER DEFENDER · SPACE: RAPID FIRE · E or M: OPEN IN-GAME CONTACT MENU',
+          W / 2,
+          H - 14
+        );
+      }
+    },
+  };
+};
+
 const GAMES: Record<string, (k: Keys, ctx: Ctx, getDims: () => Dims) => Game> = {
   snake,
   pong,
   breakout,
   drive,
+  comms,
 };
 
 const press = (code: string, down: boolean) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code }));
@@ -2252,6 +2718,381 @@ const Joystick: React.FC<{
   );
 };
 
+// ============================================================================
+// IN-GAME COMMS UPLINK CONTACT MENU (With Multi-Layer Anti-Bot Firewall)
+// ============================================================================
+const CommsContactMenu: React.FC<{
+  botsDestroyed: number;
+  terminalEnteredAt: number;
+  onResumeGame: () => void;
+}> = ({ botsDestroyed, terminalEnteredAt, onResumeGame }) => {
+  const [form, setForm] = useState({ name: '', email: '', message: '' });
+  // Hidden honeypot fields — humans never see or fill these, automated bots do
+  const [honeypot, setHoneypot] = useState({ website: '', bot_trap: '' });
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [errorReason, setErrorReason] = useState<string>('');
+
+  // Human interaction telemetry
+  const keystrokeCountRef = useRef(0);
+  const pointerInteractionsRef = useRef(0);
+  const focusedFieldsRef = useRef<Set<string>>(new Set());
+
+  // Interactive 3-Node Firewall Sequence Challenge (shuffled once on mount)
+  const [nodeOrder] = useState<number[]>(() => {
+    const arr = [1, 2, 3];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  });
+  const [nextNode, setNextNode] = useState<number>(1);
+  const [challengeWrong, setChallengeWrong] = useState(false);
+
+  const isGameVerified = botsDestroyed >= 3;
+  const isManualVerified = nextNode > 3;
+  const isVerified = isGameVerified || isManualVerified;
+
+  const handleNodeClick = (n: number) => {
+    pointerInteractionsRef.current++;
+    if (n === nextNode) {
+      setChallengeWrong(false);
+      setNextNode((curr) => curr + 1);
+      if (n === 3) {
+        stationAudio.playDriftBonus();
+      } else {
+        stationAudio.playCoinPickup();
+      }
+    } else {
+      setChallengeWrong(true);
+      setNextNode(1);
+      stationAudio.playCarBump();
+    }
+  };
+
+  const recordKeystroke = () => {
+    keystrokeCountRef.current++;
+  };
+
+  const recordFocus = (field: string) => {
+    focusedFieldsRef.current.add(field);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorReason('');
+
+    // 1. Honeypot check
+    if (honeypot.website.trim() !== '' || honeypot.bot_trap.trim() !== '') {
+      setStatus('error');
+      setErrorReason('Firewall blocked automated bot signature.');
+      return;
+    }
+
+    // 2. Challenge verification check
+    if (!isVerified) {
+      setStatus('error');
+      setErrorReason('Complete the Firewall Handshake (tap nodes 1 → 2 → 3) or blast 3 spam-bots first.');
+      stationAudio.playCarBump();
+      return;
+    }
+
+    // 3. Human-input timing & keystroke telemetry check
+    const elapsedMs = performance.now() - terminalEnteredAt;
+    if (
+      elapsedMs < 3500 ||
+      keystrokeCountRef.current < 4 ||
+      focusedFieldsRef.current.size < 2
+    ) {
+      setStatus('error');
+      setErrorReason('Human input timing check failed — please type your details naturally.');
+      stationAudio.playCarBump();
+      return;
+    }
+
+    setStatus('sending');
+    try {
+      const response = await fetch('https://a4e95dbcz3.execute-api.us-east-1.amazonaws.com/prod', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          message: form.message.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        setStatus('sent');
+        stationAudio.playDriftBonus();
+        setForm({ name: '', email: '', message: '' });
+      } else {
+        setStatus('error');
+        setErrorReason('Uplink relay returned an error. Please try transmitting again.');
+      }
+    } catch {
+      setStatus('error');
+      setErrorReason('Network transmission failed. Please check your connection and retry.');
+    }
+  };
+
+  return (
+    <div
+      className="absolute inset-0 z-40 flex items-center justify-center p-2.5 sm:p-4 bg-black/80 backdrop-blur-sm select-none overflow-y-auto"
+      onPointerDown={() => {
+        pointerInteractionsRef.current++;
+      }}
+    >
+      <div
+        className="relative w-full max-w-xl max-h-[92dvh] flex flex-col rounded-xl border-2 border-cyan-400 bg-zinc-950/95 shadow-[0_0_50px_rgba(34,211,238,0.35)] overflow-hidden text-left font-mono"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Top Arcade Menu Bar */}
+        <div className="flex items-center justify-between px-3.5 sm:px-5 py-2.5 sm:py-3 border-b border-cyan-400/40 bg-zinc-950 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399] shrink-0" />
+            <span className="text-xs uppercase tracking-wider text-cyan-300 font-bold truncate">
+              ARCADE MENU // COMMS UPLINK
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onResumeGame}
+            className="px-2.5 py-1 text-xs font-bold rounded border border-cyan-400/60 bg-cyan-400/10 hover:bg-cyan-400/25 text-cyan-300 transition cursor-pointer"
+          >
+            ▶ BACK TO GAME (ESC)
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 min-h-0 overflow-y-auto terminal-scrollbar px-3.5 sm:px-5 py-3.5 sm:py-4 space-y-3.5">
+          {/* Anti-Bot Firewall Challenge Status / Widget */}
+          <div
+            className={`rounded-lg border p-3 transition ${
+              isVerified
+                ? 'border-emerald-400/60 bg-emerald-950/30'
+                : 'border-amber-400/60 bg-amber-950/25'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {isVerified ? (
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                )}
+                <span
+                  className={`text-xs font-bold uppercase tracking-wider ${
+                    isVerified ? 'text-emerald-300' : 'text-amber-300'
+                  }`}
+                >
+                  {isGameVerified
+                    ? `HUMAN VERIFIED VIA MINI-GAME (${botsDestroyed} BOTS BLASTED)`
+                    : isManualVerified
+                    ? 'FIREWALL HANDSHAKE COMPLETE — HUMAN VERIFIED'
+                    : 'ANTI-BOT FIREWALL CHALLENGE'}
+                </span>
+              </div>
+              {!isVerified && (
+                <button
+                  type="button"
+                  onClick={onResumeGame}
+                  className="text-[11px] px-2 py-0.5 rounded border border-cyan-400/50 bg-cyan-950/60 text-cyan-300 hover:bg-cyan-900/60 transition cursor-pointer shrink-0"
+                >
+                  🚀 Blast Bots ({botsDestroyed}/3)
+                </button>
+              )}
+            </div>
+
+            {!isVerified && (
+              <div className="mt-2.5">
+                <p className="text-[11px] text-zinc-300 mb-2">
+                  Tap the encrypted shield nodes in ascending order (<span className="text-amber-300 font-bold">1 → 2 → 3</span>) or blast 3 spam-bots in the game:
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {nodeOrder.map((n) => {
+                    const locked = n < nextNode;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        disabled={locked}
+                        onClick={() => handleNodeClick(n)}
+                        className={`py-2 px-2 rounded border text-xs font-bold transition cursor-pointer ${
+                          locked
+                            ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                            : 'border-amber-400/60 bg-zinc-900 hover:bg-amber-400/20 text-amber-200 active:scale-95'
+                        }`}
+                      >
+                        {locked ? `✓ NODE 0${n}` : `[ NODE 0${n} ]`}
+                      </button>
+                    );
+                  })}
+                </div>
+                {challengeWrong && (
+                  <p className="text-[11px] text-red-400 mt-1.5">
+                    Sequence mismatch! Start from [ NODE 01 ].
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {status === 'sent' ? (
+            <div className="rounded-lg border-2 border-emerald-400/70 bg-emerald-950/30 p-5 text-center space-y-3">
+              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+              <h3 className="text-base font-bold text-emerald-300 uppercase tracking-wider">
+                TRANSMISSION RECEIVED!
+              </h3>
+              <p className="text-xs text-zinc-300">
+                Your message passed the anti-bot firewall and was delivered directly to Emilio.
+              </p>
+              <div className="flex items-center justify-center gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStatus('idle')}
+                  className="px-3.5 py-1.5 text-xs font-bold rounded border border-cyan-400/60 bg-zinc-900 hover:bg-cyan-400/20 text-cyan-300 transition cursor-pointer"
+                >
+                  NEW TRANSMISSION
+                </button>
+                <button
+                  type="button"
+                  onClick={onResumeGame}
+                  className="px-4 py-1.5 text-xs font-bold rounded bg-cyan-400 text-black hover:bg-cyan-300 transition cursor-pointer"
+                >
+                  ▶ RESUME MINI-GAME
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {/* Hidden Honeypot Trap Inputs */}
+              <div
+                className="absolute -left-[9999px] top-auto w-px h-px overflow-hidden opacity-0 pointer-events-none"
+                aria-hidden="true"
+              >
+                <label htmlFor="arcade_website_url">Website</label>
+                <input
+                  id="arcade_website_url"
+                  type="text"
+                  name="website"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={honeypot.website}
+                  onChange={(e) => setHoneypot({ ...honeypot, website: e.target.value })}
+                />
+                <label htmlFor="arcade_bot_trap">Company Role</label>
+                <input
+                  id="arcade_bot_trap"
+                  type="text"
+                  name="bot_trap"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={honeypot.bot_trap}
+                  onChange={(e) => setHoneypot({ ...honeypot, bot_trap: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-cyan-300/90 mb-1">
+                  Callsign / Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={form.name}
+                  onFocus={() => recordFocus('name')}
+                  onKeyDown={recordKeystroke}
+                  onChange={(e) => {
+                    recordKeystroke();
+                    setForm({ ...form, name: e.target.value });
+                  }}
+                  placeholder="Your name"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-400 focus:outline-none select-text"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-cyan-300/90 mb-1">
+                  Return Frequency / Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={form.email}
+                  onFocus={() => recordFocus('email')}
+                  onKeyDown={recordKeystroke}
+                  onChange={(e) => {
+                    recordKeystroke();
+                    setForm({ ...form, email: e.target.value });
+                  }}
+                  placeholder="you@example.com"
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-400 focus:outline-none select-text"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-cyan-300/90 mb-1">
+                  Transmission Payload / Message
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={form.message}
+                  onFocus={() => recordFocus('message')}
+                  onKeyDown={recordKeystroke}
+                  onChange={(e) => {
+                    recordKeystroke();
+                    setForm({ ...form, message: e.target.value });
+                  }}
+                  placeholder="Your message for Emilio..."
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-400 focus:outline-none resize-none select-text"
+                />
+              </div>
+
+              {status === 'error' && errorReason && (
+                <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-950/40 border border-red-500/40 rounded px-2.5 py-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorReason}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={status === 'sending'}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded transition cursor-pointer ${
+                    isVerified
+                      ? 'bg-cyan-400 text-black hover:bg-cyan-300 shadow-[0_0_18px_rgba(34,211,238,0.4)]'
+                      : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:border-amber-400'
+                  } disabled:opacity-50`}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>
+                    {status === 'sending'
+                      ? 'ENCRYPTING & TRANSMITTING...'
+                      : isVerified
+                      ? 'TRANSMIT MESSAGE'
+                      : 'COMPLETE CHALLENGE TO TRANSMIT'}
+                  </span>
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-3.5 sm:px-5 py-2 border-t border-cyan-400/30 bg-zinc-950 shrink-0 text-[10px] text-zinc-400">
+          <span>FIREWALL: HONEYPOT + TIMING + NODE CHALLENGE</span>
+          <span>ESC: RETURN TO GAME</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Arcade: React.FC<{
   game: string;
   projects: Project[];
@@ -2263,6 +3104,7 @@ const Arcade: React.FC<{
   const ref = useRef<HTMLCanvasElement>(null);
   const hud = useRef<HTMLDivElement>(null);
   const joyRef = useRef({ x: 0, y: 0 });
+  const terminalEnteredAtRef = useRef<number>(performance.now());
 
   const [showControls, setShowControls] = useState(false);
   const showControlsRef = useRef(false);
@@ -2270,6 +3112,8 @@ const Arcade: React.FC<{
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isMenuOpenRef = useRef(false);
+  const [botsDestroyed, setBotsDestroyed] = useState(0);
+  const botsDestroyedRef = useRef(0);
   const [nearProjectTitle, setNearProjectTitle] = useState<string | null>(null);
   const nearProjectRef = useRef<string | null>(null);
 
@@ -2366,8 +3210,24 @@ const Arcade: React.FC<{
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'F12' || e.code === 'F11' || e.code === 'F5') return;
 
+      // Allow normal typing when an input or textarea is focused inside the in-game contact menu
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        if (e.type === 'keydown' && e.code === 'Escape') {
+          target.blur();
+          g.onKeyDown?.('Escape');
+          e.preventDefault();
+        }
+        return;
+      }
+
       if (e.type === 'keydown' && g.onKeyDown && g.onKeyDown(e.code)) {
         e.preventDefault();
+        return;
+      }
+
+      // When the in-game contact menu is open, do not intercept keyboard keys or exit on Q
+      if (game === 'comms' && g.isMenuOpen?.()) {
         return;
       }
 
@@ -2428,6 +3288,13 @@ const Arcade: React.FC<{
             isMenuOpenRef.current = open;
             if (open) joyRef.current = { x: 0, y: 0 };
             setIsMenuOpen(open);
+          }
+        }
+        if (g.getBotsDestroyed) {
+          const bd = g.getBotsDestroyed();
+          if (bd !== botsDestroyedRef.current) {
+            botsDestroyedRef.current = bd;
+            setBotsDestroyed(bd);
           }
         }
         if (g.getNearProject) {
@@ -2513,7 +3380,21 @@ const Arcade: React.FC<{
     joyRef.current = { x: 0, y: 0 };
   };
 
-  const displayGameTitle = game === 'drive' ? 'CYBER DRIFT' : game.toUpperCase();
+  const displayGameTitle =
+    game === 'drive'
+      ? 'CYBER DRIFT'
+      : game === 'comms'
+      ? 'COMMS UPLINK // ANTI-BOT DEFENDER'
+      : game.toUpperCase();
+
+  const toggleCommsMenu = () => {
+    const g = gameInstanceRef.current;
+    if (!g?.setMenuOpen) return;
+    const next = !isMenuOpenRef.current;
+    g.setMenuOpen(next);
+    isMenuOpenRef.current = next;
+    setIsMenuOpen(next);
+  };
 
   return (
     <div
@@ -2540,6 +3421,20 @@ const Arcade: React.FC<{
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+          {game === 'comms' && (
+            <button
+              onClick={toggleCommsMenu}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded border transition cursor-pointer backdrop-blur shadow ${
+                isMenuOpen
+                  ? 'bg-cyan-400 text-black border-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.5)]'
+                  : 'bg-zinc-950/85 hover:bg-cyan-950/80 text-cyan-300 border-cyan-400/60 hover:border-cyan-300'
+              }`}
+              title="Toggle In-Game Contact Menu (E / M)"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span>{isMenuOpen ? 'Resume Game' : 'Contact Menu (E)'}</span>
+            </button>
+          )}
           {game === 'drive' && (
             <button
               onClick={handleTriggerNewTrack}
@@ -2596,6 +3491,19 @@ const Arcade: React.FC<{
             </span>
           </button>
         </div>
+      )}
+
+      {/* In-Game Comms Uplink Contact Menu */}
+      {game === 'comms' && isMenuOpen && (
+        <CommsContactMenu
+          botsDestroyed={botsDestroyed}
+          terminalEnteredAt={terminalEnteredAtRef.current}
+          onResumeGame={() => {
+            gameInstanceRef.current?.setMenuOpen?.(false);
+            isMenuOpenRef.current = false;
+            setIsMenuOpen(false);
+          }}
+        />
       )}
 
       {/* On-Screen Joystick Controls */}

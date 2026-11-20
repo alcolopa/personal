@@ -31,9 +31,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <a href="/about" className="hover:underline transition-colors">
                 About
             </a>
-            <a href="/contact" className="hover:underline transition-colors">
-                Contact
-            </a>
         </>
     );
 
