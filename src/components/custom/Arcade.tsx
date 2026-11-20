@@ -735,6 +735,8 @@ const drive = (
     v: 0,
     steerAngle: 0,
     nitro: 100,
+    isAccelerating: false,
+    isBraking: false,
     isBoosting: false,
     isDrifting: false,
     driftTime: 0,
@@ -1130,28 +1132,45 @@ const drive = (
       const { joy } = getDims();
 
       // --- 1. Controls & Input Mapping ---
-      // Steering: true analog stick steering with keyboard fallback
+      const joyMag = joy ? Math.min(1, Math.hypot(joy.x, joy.y)) : 0;
+      const JOY_DEADZONE = 0.12;
+      const usingJoystick = joyMag > JOY_DEADZONE;
+
+      let throttleInput = up(k) ? 1 : 0;
+      const brakeInput = down(k) ? 1 : 0;
       let steerInput = (right(k) ? 1 : 0) - (left(k) ? 1 : 0);
-      if (joy && Math.abs(joy.x) > 0.05) {
-        steerInput = joy.x;
+      let targetAngle = car.a;
+      let angleDiff = 0;
+
+      if (usingJoystick) {
+        // Directional (follow-stick) 360° steering: point the stick where you want the car to go
+        const stickPower = (joyMag - JOY_DEADZONE) / (1 - JOY_DEADZONE);
+        targetAngle = Math.atan2(joy.y, joy.x);
+        angleDiff = Math.atan2(Math.sin(targetAngle - car.a), Math.cos(targetAngle - car.a));
+
+        if (Math.abs(angleDiff) < 0.03) {
+          steerInput = 0;
+        } else {
+          steerInput = Math.max(-1, Math.min(1, angleDiff / 0.75));
+        }
+
+        // Auto-throttle from stick deflection unless actively holding BRAKE
+        if (brakeInput === 0) {
+          // Ease throttle gently on sharp turns so the car carves tight corners cleanly
+          const turnAlignment = Math.max(0.45, Math.cos(angleDiff * 0.65));
+          throttleInput = Math.max(throttleInput, stickPower * turnAlignment);
+        }
       }
 
-      // Throttle & Brake: joystick up/down or gas/brake buttons/keys
-      let throttleInput = up(k) ? 1 : 0;
-      let brakeInput = down(k) ? 1 : 0;
-      if (joy && joy.y < -0.1) {
-        throttleInput = Math.max(throttleInput, -joy.y);
-      }
-      if (joy && joy.y > 0.1) {
-        brakeInput = Math.max(brakeInput, joy.y);
-      }
+      car.isAccelerating = throttleInput > 0.05;
+      car.isBraking = brakeInput > 0.05;
 
       const wantDrift = driftKey(k);
       const wantBoost = boostKey(k);
 
       // --- 2. Steering Interpolation ---
       const targetSteer = steerInput * 0.46; // ~26 deg
-      car.steerAngle += (targetSteer - car.steerAngle) * Math.min(1, 14 * dt);
+      car.steerAngle += (targetSteer - car.steerAngle) * Math.min(1, (usingJoystick ? 20 : 14) * dt);
 
       // --- 3. Nitro Boost Logic ---
       const isBoosting = wantBoost && car.nitro > 4 && throttleInput > 0;
@@ -1190,9 +1209,9 @@ const drive = (
       // --- 4. Drift Physics & Lateral Slip ---
       const speed = Math.hypot(car.vx, car.vy);
       const isDriftingInput = wantDrift || (brakeInput > 0 && Math.abs(steerInput) > 0.3 && speed > 150);
-      const isSlipping = Math.abs(lateralVel) > 80 || (isDriftingInput && speed > 120);
+      const isSlipping = Math.abs(lateralVel) > 85 || (isDriftingInput && speed > 120);
 
-      const lateralGrip = isSlipping ? 0.35 : 0.94;
+      const lateralGrip = isDriftingInput ? 0.42 : isSlipping ? 0.55 : 0.94;
       const lateralFriction = Math.pow(1 - lateralGrip, dt * 10);
 
       let nearestPoint = trackPoints[0];
@@ -1229,9 +1248,25 @@ const drive = (
       car.vx = fwdX * forwardVel + rightX * lateralVel;
       car.vy = fwdY * forwardVel + rightY * lateralVel;
 
-      const turnRate = (forwardVel / 180) * car.steerAngle * 4.5;
-      const driftOversteer = isSlipping ? Math.sign(lateralVel) * 1.9 * (speed / 300) : 0;
-      car.a += (turnRate + driftOversteer) * dt;
+      // Speed-normalized turning: responsive at low speed, steady and controllable at top speed
+      const speedTurnFactor = Math.min(1.0, Math.abs(forwardVel) / 140);
+      const minJoyTurn = usingJoystick && throttleInput > 0 ? 0.55 : 0;
+      const effectiveTurnFactor = Math.max(speedTurnFactor, minJoyTurn);
+      const dirSign = forwardVel < -15 ? -1 : 1;
+      const maxTurnRate = isDriftingInput ? 4.2 : 3.5;
+      const angularVel = dirSign * effectiveTurnFactor * (car.steerAngle / 0.46) * maxTurnRate;
+
+      if (usingJoystick && brakeInput === 0 && dirSign > 0) {
+        // Prevent overshooting the joystick heading for rock-steady straight-line driving
+        const deltaAngle = angularVel * dt;
+        if (Math.sign(deltaAngle) === Math.sign(angleDiff) && Math.abs(deltaAngle) > Math.abs(angleDiff)) {
+          car.a = targetAngle;
+        } else {
+          car.a += deltaAngle;
+        }
+      } else {
+        car.a += angularVel * dt;
+      }
 
       const curSpeed = Math.hypot(car.vx, car.vy);
       if (curSpeed > maxSpeed) {
@@ -1794,7 +1829,7 @@ const drive = (
       c.fillRect(22, -8, 2, 4);
       c.fillRect(22, 4, 2, 4);
 
-      const isBraking = down(k) || car.v < -10;
+      const isBraking = car.isBraking || car.v < -10;
       c.fillStyle = isBraking ? '#ef4444' : '#991b1b';
       c.shadowColor = '#ef4444';
       c.shadowBlur = isBraking ? 14 : 4;
@@ -1802,7 +1837,7 @@ const drive = (
       c.fillRect(-21, 5, 2, 3);
       c.shadowBlur = 0;
 
-      if (up(k) || car.isBoosting) {
+      if (car.isAccelerating || car.isBoosting) {
         const flameLen = car.isBoosting ? 18 + Math.random() * 12 : 6 + Math.random() * 6;
         c.fillStyle = car.isBoosting ? '#38bdf8' : '#f97316';
         c.beginPath();
@@ -2084,32 +2119,52 @@ const Btn: React.FC<{ code: string; hold?: boolean; children: React.ReactNode; c
   hold,
   children,
   className,
-}) => (
-  <button
-    className={`rounded-2xl border-2 border-amber-400/60 bg-black/70 backdrop-blur-md text-amber-300 touch-none select-none active:bg-amber-400/40 active:scale-95 transition-all shadow-[0_0_14px_rgba(245,158,11,0.3)] flex items-center justify-center font-bold cursor-pointer ${
-      className || 'w-14 h-14'
-    }`}
-    onPointerDown={(e) => {
-      e.preventDefault();
-      press(code, true);
-      if (!hold) press(code, false);
-    }}
-    onPointerUp={(e) => {
-      e.preventDefault();
-      if (hold) press(code, false);
-    }}
-    onPointerLeave={(e) => {
-      e.preventDefault();
-      if (hold) press(code, false);
-    }}
-    onPointerCancel={(e) => {
-      e.preventDefault();
-      if (hold) press(code, false);
-    }}
-  >
-    {children}
-  </button>
-);
+}) => {
+  const pointerIdRef = useRef<number | null>(null);
+
+  const release = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (pointerIdRef.current !== e.pointerId) return;
+    pointerIdRef.current = null;
+    if (hold) press(code, false);
+  };
+
+  return (
+    <button
+      className={`rounded-2xl border-2 border-amber-400/60 bg-black/70 backdrop-blur-md text-amber-300 touch-none select-none active:bg-amber-400/40 active:scale-95 transition-all shadow-[0_0_14px_rgba(245,158,11,0.3)] flex items-center justify-center font-bold cursor-pointer ${
+        className || 'w-14 h-14'
+      }`}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (hold) {
+          pointerIdRef.current = e.pointerId;
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            // ignore synthetic pointer events
+          }
+          press(code, true);
+        } else {
+          press(code, true);
+          press(code, false);
+        }
+      }}
+      onPointerUp={(e) => {
+        e.preventDefault();
+        release(e);
+      }}
+      onPointerCancel={(e) => {
+        e.preventDefault();
+        release(e);
+      }}
+      onLostPointerCapture={(e) => {
+        release(e);
+      }}
+    >
+      {children}
+    </button>
+  );
+};
 
 // ============================================================================
 // VIRTUAL JOYSTICK (High-Precision Analog Touch Controller)
@@ -2147,7 +2202,11 @@ const Joystick: React.FC<{
     e.preventDefault();
     e.stopPropagation();
     pointerIdRef.current = e.pointerId;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore synthetic pointer events
+    }
     updateKnob(e.clientX, e.clientY);
   };
 
@@ -2172,6 +2231,7 @@ const Joystick: React.FC<{
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onLostPointerCapture={handlePointerUp}
       className={`relative rounded-full border-2 border-amber-400/60 bg-black/75 backdrop-blur-md touch-none select-none shadow-[0_0_24px_rgba(245,158,11,0.35)] flex items-center justify-center cursor-pointer pointer-events-auto ${
         className || 'w-32 h-32 sm:w-36 sm:h-36'
       }`}
@@ -2205,12 +2265,20 @@ const Arcade: React.FC<{
   const joyRef = useRef({ x: 0, y: 0 });
 
   const [showControls, setShowControls] = useState(false);
+  const showControlsRef = useRef(false);
   const gameInstanceRef = useRef<Game | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isMenuOpenRef = useRef(false);
   const [nearProjectTitle, setNearProjectTitle] = useState<string | null>(null);
   const nearProjectRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    showControlsRef.current = showControls;
+    if (!showControls) {
+      joyRef.current = { x: 0, y: 0 };
+    }
+  }, [showControls]);
 
   useEffect(() => {
     const isTouch =
@@ -2281,7 +2349,7 @@ const Arcade: React.FC<{
     const getDims = (): Dims => ({
       W: canvas.width || window.innerWidth || 800,
       H: canvas.height || window.innerHeight || 600,
-      touch: Boolean(showControls),
+      touch: Boolean(showControlsRef.current),
       joy: joyRef.current,
     });
 
@@ -2358,6 +2426,7 @@ const Arcade: React.FC<{
           const open = g.isMenuOpen();
           if (open !== isMenuOpenRef.current) {
             isMenuOpenRef.current = open;
+            if (open) joyRef.current = { x: 0, y: 0 };
             setIsMenuOpen(open);
           }
         }
@@ -2393,7 +2462,7 @@ const Arcade: React.FC<{
 
           neon(c, '#ffffff', 0);
           c.font = '15px monospace';
-          c.fillText(showControls ? 'TAP TO RESTART' : 'PRESS SPACE TO RESTART', canvas.width / 2, canvas.height / 2 + 54);
+          c.fillText(showControlsRef.current ? 'TAP TO RESTART' : 'PRESS SPACE TO RESTART', canvas.width / 2, canvas.height / 2 + 54);
         }
         if (hud.current) hud.current.textContent = g.score();
       } catch (err) {
@@ -2409,7 +2478,7 @@ const Arcade: React.FC<{
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
     };
-  }, [game, projects, isPaused, onOpen, showControls]);
+  }, [game, projects, isPaused, onOpen]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = ref.current;
@@ -2438,36 +2507,10 @@ const Arcade: React.FC<{
 
   const handleJoyMove = (x: number, y: number) => {
     joyRef.current = { x, y };
-
-    if (x < -0.3) {
-      press('ArrowLeft', true);
-      press('ArrowRight', false);
-    } else if (x > 0.3) {
-      press('ArrowRight', true);
-      press('ArrowLeft', false);
-    } else {
-      press('ArrowLeft', false);
-      press('ArrowRight', false);
-    }
-
-    if (y < -0.3) {
-      press('ArrowUp', true);
-      press('ArrowDown', false);
-    } else if (y > 0.3) {
-      press('ArrowDown', true);
-      press('ArrowUp', false);
-    } else {
-      press('ArrowUp', false);
-      press('ArrowDown', false);
-    }
   };
 
   const handleJoyEnd = () => {
     joyRef.current = { x: 0, y: 0 };
-    press('ArrowLeft', false);
-    press('ArrowRight', false);
-    press('ArrowUp', false);
-    press('ArrowDown', false);
   };
 
   const displayGameTitle = game === 'drive' ? 'CYBER DRIFT' : game.toUpperCase();
@@ -2556,12 +2599,8 @@ const Arcade: React.FC<{
       )}
 
       {/* On-Screen Joystick Controls */}
-      {showControls && (
-        <div
-          className={`absolute inset-0 pointer-events-none z-30 select-none transition-opacity duration-200 ${
-            isMenuOpen ? 'opacity-0' : 'opacity-100'
-          }`}
-        >
+      {showControls && !isMenuOpen && (
+        <div className="absolute inset-0 pointer-events-none z-30 select-none">
           {/* Left Side: Virtual Analog Joystick */}
           <div className="absolute left-4 sm:left-8 bottom-6 pointer-events-auto">
             <Joystick onMove={handleJoyMove} onEnd={handleJoyEnd} />
